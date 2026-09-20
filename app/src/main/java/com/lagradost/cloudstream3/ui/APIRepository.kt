@@ -84,6 +84,7 @@ class APIRepository(val api: MainAPI) {
     val vpnStatus = api.vpnStatus
 
     private suspend fun <T> traceResult(stage: String, extra: String = "", action: suspend () -> Resource<T>): Resource<T> {
+        ProviderTrace.registerProviderHost(api.name, api.mainUrl)
         val id = ProviderTrace.begin(stage, api.name, extra)
         return try {
             val result = ProviderTrace.inOperation(id) { action() }

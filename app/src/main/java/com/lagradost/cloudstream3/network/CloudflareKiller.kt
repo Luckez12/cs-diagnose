@@ -4,6 +4,7 @@ import android.util.Log
 import android.webkit.CookieManager
 import androidx.annotation.AnyThread
 import com.lagradost.cloudstream3.app
+import com.lagradost.cloudstream3.utils.diagnostics.ProviderTrace
 import com.lagradost.cloudstream3.mvvm.debugWarning
 import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.nicehttp.Requests.Companion.await
@@ -60,10 +61,28 @@ class CloudflareKiller : Interceptor {
                 if(!(response.header("Server") in CLOUDFLARE_SERVERS && response.code in ERROR_CODES)) {
                     return@runBlocking response
                 } else {
+                    // A 403 alone does not prove Cloudflare; this branch also checked
+                    // the server header. Do not include cookies, full URLs or headers.
+                    val trace = ProviderTrace.beginCloudflare(request.url.host, response.code)
+                    ProviderTrace.note(trace, "CLOUDFLARE", "step=initial_response challenge=confirmed host=${request.url.host}")
                     response.close()
-                    bypassCloudflare(request)?.let {
-                        Log.d(TAG, "Succeeded bypassing cloudflare: ${request.url}")
-                        return@runBlocking it
+                    try {
+                        ProviderTrace.note(trace, "CLOUDFLARE", "step=challenge_resolution_start")
+                        val solved = bypassCloudflare(request, trace)
+                        if (solved != null) {
+                            ProviderTrace.note(trace, "CLOUDFLARE", "step=retry_result status=${solved.code}")
+                            if (solved.code in ERROR_CODES && solved.header("Server") in CLOUDFLARE_SERVERS) {
+                                ProviderTrace.failure(trace, "ChallengeStillActive", "status=${solved.code}")
+                            } else {
+                                ProviderTrace.finish(trace, "result=retry_completed status=${solved.code}")
+                            }
+                            Log.d(TAG, "Cloudflare retry completed for host=${request.url.host} status=${solved.code}")
+                            return@runBlocking solved
+                        }
+                        ProviderTrace.failure(trace, "ChallengeUnresolved", "step=no_clearance")
+                    } catch (t: Exception) {
+                        ProviderTrace.exception(trace, t)
+                        throw t
                     }
                 }
             }
@@ -109,13 +128,14 @@ class CloudflareKiller : Interceptor {
         ).await()
     }
 
-    private suspend fun bypassCloudflare(request: Request): Response? {
+    private suspend fun bypassCloudflare(request: Request, trace: Long): Response? {
         val url = request.url.toString()
 
         // If no cookies then try to get them
         // Remove this if statement if cookies expire
         if (!trySolveWithSavedCookies(request)) {
-            Log.d(TAG, "Loading webview to solve cloudflare for ${request.url}")
+            ProviderTrace.note(trace, "CLOUDFLARE", "step=webview_wait host=${request.url.host}")
+            Log.d(TAG, "Loading Cloudflare WebView for host=${request.url.host}")
             WebViewResolver(
                 // Never exit based on url
                 Regex(".^"),
@@ -130,9 +150,13 @@ class CloudflareKiller : Interceptor {
             ) {
                 trySolveWithSavedCookies(request)
             }
+            ProviderTrace.note(trace, "CLOUDFLARE", "step=webview_return clearance=${savedCookies.containsKey(request.url.host)}")
+        } else {
+            ProviderTrace.note(trace, "CLOUDFLARE", "step=existing_clearance_available")
         }
 
         val cookies = savedCookies[request.url.host] ?: return null
+        ProviderTrace.note(trace, "CLOUDFLARE", "step=retry_request host=${request.url.host}")
         return proceed(request, cookies)
     }
 }
