@@ -108,10 +108,10 @@
                 android:text="@string/extensions" />
 
             <TextView
-                android:id="@+id/settings_diagnostic"
+                android:id="@+id/settings_diagnose"
                 style="@style/SettingsItem"
                 android:nextFocusUp="@id/settings_extensions"
-                android:text="Diagnostic" />
+                android:text="Diagnose" />
 
             <LinearLayout
                 android:id="@+id/app_version_info"

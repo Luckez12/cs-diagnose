@@ -241,8 +241,11 @@ class SettingsFragment : BaseFragment<MainSettingsBinding>(
                 }
             }
 
-            settingsDiagnostic.setOnClickListener {
-                com.lagradost.cloudstream3.utils.diagnostics.DiagnosticDialog.show(requireContext())
+            // Only new Settings action, below Extensions in the original XML.
+            settingsDiagnose.setOnClickListener {
+                activity?.let { current ->
+                    com.lagradost.cloudstream3.utils.diagnostics.DiagnosticDialog.show(current)
+                }
             }
 
             // Default focus on TV

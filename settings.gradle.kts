@@ -17,5 +17,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "cs-diagnose"
-include(":app", ":shared", ":library")
+rootProject.name = "CloudStream"
+include(":app", ":shared", ":library", ":docs", ":desktopApp")
