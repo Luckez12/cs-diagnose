@@ -93,22 +93,22 @@ object ProviderTrace {
     private fun stamp(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
     private fun heapMb(): Long = (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1048576L
 
+    // Keep the existing page and spinner UI. Only simplify its category choices.
     val sections = listOf(
-        "Overview", "Homepage", "Search", "Metadata", "HTTP / Network",
-        "Links / Extractor", "Plugin Logs", "Player", "Other", "Full timeline"
+        "Live Status", "Provider Process", "HTTP / Network", "Plugin Logs",
+        "Links / Extractor", "Player", "Full timeline"
     )
 
     private fun sectionOf(stage: String): String {
         val name = stage.uppercase(Locale.US)
         return when {
-            name.startsWith("HOME") -> "Homepage"
-            name.contains("SEARCH") -> "Search"
-            name.contains("META") || name.contains("DETAIL") -> "Metadata"
             name.contains("HTTP") || name.contains("NETWORK") || name.contains("CLOUDFLARE") -> "HTTP / Network"
             name == "PLUGIN_LOG" -> "Plugin Logs"
             name.contains("LINK") || name.contains("EXTRACT") || name.contains("SUBTITLE") -> "Links / Extractor"
             name.contains("PLAYER") || name.contains("PLAYBACK") || name.contains("FIRST_FRAME") || name.contains("BUFFER") -> "Player"
-            else -> "Other"
+            // Homepage, Search, Metadata and previously unclassified app-stage events
+            // live together; no events are removed from Full timeline.
+            else -> "Provider Process"
         }
     }
 
@@ -275,19 +275,153 @@ object ProviderTrace {
         ignoreThrough = counter
     }
 
-    /** Keep the UI unchanged; the text below is the only output the UI consumes. */
+    // Live Status deliberately uses observed facts rather than guessing what a plugin is
+    // doing. Extractor-internal parsing / poster loading cannot be inferred from silence.
+    private fun field(info: String, key: String): String? =
+        Regex("(?:^|\\s)" + Regex.escape(key) + "=([^ ]+)")
+            .find(info)?.groupValues?.getOrNull(1)
+
+    private fun liveAction(stage: String, provider: String): String = when (stage) {
+        "HOMEPAGE" -> "Sedang memuatkan halaman utama ${provider}."
+        "HOMEPAGE_SECTION" -> "Sedang memuatkan bahagian halaman utama."
+        "SEARCH", "QUICK_SEARCH" -> "Sedang mencari kandungan dalam ${provider}."
+        "METADATA" -> "Sedang mendapatkan maklumat kandungan."
+        "LINKS" -> "Sedang mencari pautan video."
+        "EXTRACTOR" -> "Sedang mendapatkan pautan daripada extractor."
+        "HTTP" -> "Sedang menunggu respons laman ${provider}."
+        "CLOUDFLARE" -> "Sedang menjalankan pemeriksaan keselamatan laman."
+        "PLAYER", "PLAYBACK" -> "Sedang menyediakan video untuk dimainkan."
+        else -> "Sedang menjalankan proses provider."
+    }
+
+    private fun liveEvent(e: Entry): String? {
+        val stage = e.stage.uppercase(Locale.US)
+        val level = e.level
+        if (stage == "STACK") return null // Technical stack traces stay in Full trace.
+        if (stage == "PLUGIN_LOG") return when (level) {
+            "ERROR", "WARN" -> "Plugin melaporkan masalah. Butiran ada dalam Plugin Logs."
+            else -> null
+        }
+        if (stage == "CLOUDFLARE") {
+            val step = field(e.info, "step")
+            return when {
+                step == "webview_wait" -> "Sedang menunggu pemeriksaan keselamatan laman."
+                step == "webview_return" -> if (field(e.info, "clearance") == "true")
+                    "Pemeriksaan keselamatan selesai; sambungan akan dicuba semula."
+                    else "Pemeriksaan keselamatan ditutup tanpa pengesahan berjaya."
+                step == "retry_request" -> "Mencuba sambungan semula selepas pemeriksaan keselamatan."
+                step == "retry_result" -> "Cubaan semula menerima respons laman (${field(e.info, "status") ?: "status tidak diketahui"})."
+                level == "START" -> "Pemeriksaan keselamatan laman dikesan."
+                level == "FAIL" -> "Pemeriksaan keselamatan laman gagal."
+                level == "PASS" -> "Proses pemeriksaan keselamatan selesai."
+                else -> null
+            }
+        }
+        if (stage == "HTTP") {
+            val code = field(e.info, "status")
+            return when {
+                level == "WARN" && code != null ->
+                    "Laman memberi respons $code; permintaan ini mungkin dicuba semula."
+                level == "WARN" -> "Sambungan laman mengalami masalah; semak HTTP / Network."
+                level == "FAIL" -> "Permintaan ke laman gagal; semak HTTP / Network."
+                else -> null // Avoid flooding Live Status with successful parallel requests.
+            }
+        }
+        if (level == "SLOW") return when (stage) {
+            "HOMEPAGE", "HOMEPAGE_SECTION" -> "Halaman utama mengambil masa lebih lama daripada biasa."
+            "LINKS" -> "Pencarian pautan video mengambil masa lebih lama daripada biasa."
+            else -> "Proses ${stage.lowercase(Locale.US)} mengambil masa lebih lama daripada biasa."
+        }
+        if (level == "FAIL") return when (stage) {
+            "HOMEPAGE", "HOMEPAGE_SECTION" -> "Halaman utama gagal dimuatkan."
+            "LINKS" -> "Pencarian pautan video gagal. Semak Links / Extractor dan HTTP / Network."
+            "SEARCH", "QUICK_SEARCH" -> "Carian kandungan gagal."
+            "METADATA" -> "Maklumat kandungan gagal dimuatkan."
+            else -> "Proses provider gagal. Semak Full trace untuk butiran."
+        }
+        if (level == "START") return when (stage) {
+            "HOMEPAGE" -> "Mula memuatkan halaman utama ${field(e.info, "provider") ?: "provider"}."
+            "METADATA" -> "Mula mendapatkan maklumat kandungan."
+            "LINKS" -> "Mula mencari pautan video."
+            "SEARCH", "QUICK_SEARCH" -> "Mula mencari kandungan."
+            else -> null
+        }
+        if (level == "PASS") return when (stage) {
+            "HOMEPAGE" -> "Halaman utama selesai dimuatkan."
+            "HOMEPAGE_SECTION" -> "Satu bahagian halaman utama berjaya dimuatkan."
+            "METADATA" -> "Maklumat kandungan berjaya diperoleh."
+            "SEARCH", "QUICK_SEARCH" -> "Carian kandungan selesai."
+            "LINKS" -> "Pencarian pautan video selesai."
+            "PLAYER", "PLAYBACK", "FIRST_FRAME" -> "Video mula dipaparkan oleh player."
+            else -> null
+        }
+        return null
+    }
+
+    private fun liveStatus(now: Long, importantOnly: Boolean): String {
+        // Prefer the latest active provider operation; otherwise use the latest known
+        // session. Network host matches are hints, not proof of a provider-internal step.
+        val providerActive = pending.entries.filter {
+            it.key > ignoreThrough && it.value.stage in providerStages
+        }
+        val session = providerActive.maxByOrNull { it.key }?.value?.session
+            ?: pending.entries.filter { it.key > ignoreThrough }.maxByOrNull { it.key }?.value?.session
+            ?: entries.lastOrNull()?.session
+        if (session == null) return "LIVE STATUS\n\nBelum ada aktiviti provider yang direkodkan.\nBuka provider atau cuba memainkan video dahulu."
+
+        val ongoing = pending.entries.filter { it.key > ignoreThrough && it.value.session == session }
+        val activeProvider = ongoing.lastOrNull { it.value.stage in providerStages }?.value?.provider
+        val loggedProvider = entries.lastOrNull {
+            it.session == session && it.stage in providerStages && it.info.contains("provider=")
+        }?.let { field(it.info, "provider") }
+        val provider = activeProvider ?: loggedProvider
+        val latest = ongoing.maxWithOrNull(compareBy<Map.Entry<Long, Pending>> {
+            when (it.value.stage) {
+                "CLOUDFLARE" -> 6; "HTTP" -> 5; "EXTRACTOR", "LINKS" -> 4
+                "HOMEPAGE_SECTION" -> 3; "HOMEPAGE" -> 2; else -> 1
+            }
+        }.thenBy { it.key })
+        val recent = entries.filter { it.session == session }.mapNotNull { e ->
+            liveEvent(e)?.let { e.at to it }
+        }
+        // Collapse repeated section starts, retries and concurrent identical outcomes.
+        val compact = mutableListOf<Pair<String, String>>()
+        recent.forEach { row -> if (compact.lastOrNull()?.second != row.second) compact.add(row) }
+        return buildString {
+            appendLine("LIVE STATUS")
+            if (!provider.isNullOrBlank()) appendLine("Provider: $provider")
+            appendLine()
+            if (latest != null) {
+                val task = latest.value
+                val seconds = (now - task.since).coerceAtLeast(0L) / 1000L
+                appendLine("SEKARANG: ${liveAction(task.stage, task.provider)}")
+                appendLine("Menunggu ${seconds}s.")
+                if (task.stage == "HOMEPAGE" || task.stage == "HOMEPAGE_SECTION")
+                    appendLine("Jika masih menunggu, langkah dalaman plugin mungkin belum direkodkan.")
+            } else {
+                appendLine("SEKARANG: Tiada proses aktif yang dapat dikesan.")
+            }
+            appendLine()
+            appendLine("PROSES TERKINI")
+            if (compact.isEmpty()) appendLine("Belum ada langkah yang dapat dikenal pasti untuk sesi ini.")
+            compact.takeLast(if (importantOnly) 8 else 12).forEach { (time, message) ->
+                appendLine("$time  $message")
+            }
+        }.trimEnd()
+    }
+
+    /** Existing UI consumes these strings; only the spinner categories and report change. */
     fun report(section: String, importantOnly: Boolean): String = synchronized(lock) {
         val now = SystemClock.elapsedRealtime()
-        val selected = entries.filter {
-            section == "Overview" || section == "Full timeline" || it.section == section
-        }
+        if (section == "Live Status") return@synchronized liveStatus(now, importantOnly)
+        val selected = entries.filter { section == "Full timeline" || it.section == section }
         val active = pending.filterValues {
-            section == "Overview" || section == "Full timeline" || sectionOf(it.stage) == section
+            section == "Full timeline" || sectionOf(it.stage) == section
         }
         buildString {
             appendLine("CLOUDSTREAM PROVIDER DIAGNOSTIC — ${if (importantOnly) "IMPORTANT" else "FULL TRACE"}")
             appendLine("Section: $section | events: ${selected.size} | active: ${active.size} | discarded: $dropped")
-            if (section == "Plugin Logs") appendLine("Plugin Log.d/i/w/e: ${PluginLogCollector.status()}. Matching provider tags only; untagged extension internals cannot be recovered.")
+            if (section == "Plugin Logs") appendLine("Plugin log collector: ${PluginLogCollector.status()}")
             if (active.isNotEmpty()) {
                 appendLine()
                 appendLine("IN PROGRESS")
@@ -297,34 +431,30 @@ object ProviderTrace {
                 }
             }
             if (importantOnly) {
-                val significant = selected.filter { it.level == "FAIL" || it.level == "SLOW" || (it.stage == "PLUGIN_LOG" && it.level == "ERROR") }
+                val significant = selected.filter {
+                    it.level == "FAIL" || it.level == "SLOW" ||
+                        (it.stage == "PLUGIN_LOG" && it.level == "ERROR")
+                }
                 appendLine()
                 appendLine("FAILURES / SLOW STAGES")
                 if (significant.isEmpty()) appendLine("No failed or slow stages recorded in this section.")
                 significant.takeLast(80).forEach { e ->
                     appendLine("${e.at} session=${e.session} #${e.op} ${e.level} ${e.stage} ${e.info}")
                 }
-                // HTTP WARNs are attempts, not necessarily final provider failures.
-                if (selected.any { it.level == "WARN" }) appendLine("HTTP warnings may have recovered; check Full trace for retries.")
+                if (selected.any { it.level == "WARN" })
+                    appendLine("HTTP warnings may have recovered; check Full trace for retries.")
             } else {
-                val categories = if (section == "Overview") sections.filter { it != "Overview" && it != "Full timeline" } else listOf(section)
-                categories.forEach { category ->
-                    val current = if (section == "Full timeline") selected else selected.filter { it.section == category }
-                    if (current.isNotEmpty() || section != "Overview") {
-                        appendLine()
-                        appendLine("=== ${category.uppercase(Locale.US)} (${current.size}) ===")
-                        if (current.isEmpty()) appendLine("No events recorded.")
-                        current.forEachIndexed { index, e ->
-                            if (index > 0 && e.stage != "STACK") appendLine()
-                            appendLine("${e.at} session=${e.session} #${e.op} ${e.level} ${e.stage} ${e.info}")
-                        }
-                    }
+                appendLine()
+                appendLine("=== ${section.uppercase(Locale.US)} (${selected.size}) ===")
+                if (selected.isEmpty()) appendLine("No events recorded.")
+                selected.forEachIndexed { index, e ->
+                    if (index > 0 && e.stage != "STACK") appendLine()
+                    appendLine("${e.at} session=${e.session} #${e.op} ${e.level} ${e.stage} ${e.info}")
                 }
-                if (selected.isEmpty() && section == "Overview") appendLine("No events recorded yet.")
             }
         }
     }
 
-    fun important(): String = report("Overview", true)
+    fun important(): String = report("Live Status", true)
     fun full(): String = report("Full timeline", false)
 }
