@@ -44,7 +44,8 @@ jobs:
           packages: 'platform-tools'
 
       - name: Install compile SDK
-        run: sdkmanager --install 'platforms;android-37'
+        # Android 17 SDK is published with the .0 platform suffix.
+        run: sdkmanager --channel=3 --install 'platforms;android-37.0'
 
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v5
