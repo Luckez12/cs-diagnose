@@ -1,18 +1,24 @@
-CS Diagnose — based on the newly supplied official cloudstream-master.zip.
+CS Diagnose — corrected legacy Settings and original legacy Logcat.
 
-Android app, shared/library modules, Gradle wrapper, and official LICENSE retained.
-Original LogcatDialog.kt, logcat.xml, and settings layouts/styles remain byte-for-byte unchanged
-except one added legacy diagnostic menu item in main_settings.xml. The existing Compose
-settings menu has exactly one new Diagnostic item; its existing layout is preserved.
+Based on the user-uploaded cloudstream-master.zip. The supplied upstream source
+contains two Settings implementations; the shipped upstream navigation opens
+SettingsFragment2 (Compose). This build deliberately routes navigation_settings
+to the upstream SettingsFragment (legacy) to match the requested older Settings
+UI. The legacy SettingsUpdates shows its own original Logcat dialog.
 
-Trace instrumentation: APIRepository (homepage/sections/metadata/search/links),
-RequestsHelper shared HTTP client, RepoLinkGenerator (cache), CS3IPlayer (playback),
-plus ProviderTrace, ProviderHttpTrace and an independent Diagnostic page.
+The existing upstream settings and Logcat classes, resources, colors and styles
+have not been redesigned. One Diagnostic entry below Extensions was added to
+main_settings.xml and wired in SettingsFragment.kt. Provider Diagnostic has its
+own independent page. The upstream Compose settings screen is not active and
+is unchanged relative to the supplied upstream source.
 
-Limitations: HTTP from extension-owned clients that bypass the shared app client and
-private extractor internals may be invisible; HTTP warnings are individual attempts,
-not automatically a terminal provider failure. The source ZIP has no embedded workflows.
+App ID: com.luckez.csdiagnose.debug; build target: :app:assembleStableDebug;
+ABI: arm64-v8a only. Build via GitHub Actions, not locally.
 
-App ID: com.luckez.csdiagnose.debug | build: :app:assembleStableDebug | arm64-v8a APK only.
-Put two separate YAML files into .github/workflows in the new repository.
-No APK compiled or built in the authoring environment; use GitHub Actions.
+IMPORTANT FOR EXISTING REPO: Auto-unzip overlays files; it cannot remove older
+files that were previously committed but are not in this ZIP. To guarantee a
+clean result, use a fresh/clean repo or remove older tracked source files before
+extracting this archive. Keep .github/workflows/*.yml separate from this ZIP.
+
+Diagnostic limitations: extension-owned HTTP clients may not be observable and
+HTTP error attempts do not necessarily indicate terminal provider failure.

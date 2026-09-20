@@ -266,15 +266,6 @@ object SettingsFragmentScreen : Screen {
                             screens.forEach { settingsTab ->
                                 SettingsTab(settingsTab)
                             }
-                            TextPreferenceWidget(
-                                title = "Diagnostic",
-                                icon = painterResource(R.drawable.extension_24px),
-                                onPreferenceClick = {
-                                    activity?.let {
-                                        com.lagradost.cloudstream3.utils.diagnostics.DiagnosticDialog.show(it)
-                                    }
-                                }
-                            )
                             BuildStamp()
                         }
                     })
