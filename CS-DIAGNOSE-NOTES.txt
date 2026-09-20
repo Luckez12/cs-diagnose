@@ -1,0 +1,18 @@
+cs-diagnose — full Android source archive
+
+Source: CloudStream source uploaded in cloudstream-debug-master.zip, with clean
+provider diagnostic instrumentation, legacy settings navigation, and ARM64-only
+stable debug variant. Preserves the original Logcat UI. Includes app, shared,
+library, Gradle wrapper/config, assets, and original LICENSE. Excludes unrelated
+desktop/docs modules and upstream GitHub workflows.
+
+Install archive at repository ROOT (no enclosing folder). The two workflows are
+provided as SEPARATE .yml downloads: put them in .github/workflows/.
+The unzip workflow deletes an uploaded ZIP after extraction and commits the files.
+The build workflow supports manual build and automatic build after successful unzip.
+A standalone first-time source upload may be followed by a manual build.
+
+Build variant: :app:assembleStableDebug (ARM64 only).
+Application ID: com.luckez.csdiagnose.debug (separate from official CloudStream).
+
+Not APK-compiled in this environment. Check GitHub Actions build output.
