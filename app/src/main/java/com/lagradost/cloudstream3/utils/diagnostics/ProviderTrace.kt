@@ -341,6 +341,7 @@ object ProviderTrace {
         }
         if (level == "START") return when (stage) {
             "HOMEPAGE" -> "Mula memuatkan halaman utama ${field(e.info, "provider") ?: "provider"}."
+            "HOMEPAGE_SECTION" -> "Mula memuatkan satu bahagian halaman utama."
             "METADATA" -> "Mula mendapatkan maklumat kandungan."
             "LINKS" -> "Mula mencari pautan video."
             "SEARCH", "QUICK_SEARCH" -> "Mula mencari kandungan."
@@ -358,62 +359,68 @@ object ProviderTrace {
         return null
     }
 
-    private fun liveStatus(now: Long, importantOnly: Boolean): String {
-        // Prefer the latest active provider operation; otherwise use the latest known
-        // session. Network host matches are hints, not proof of a provider-internal step.
-        val providerActive = pending.entries.filter {
-            it.key > ignoreThrough && it.value.stage in providerStages
-        }
-        val session = providerActive.maxByOrNull { it.key }?.value?.session
-            ?: pending.entries.filter { it.key > ignoreThrough }.maxByOrNull { it.key }?.value?.session
-            ?: entries.lastOrNull()?.session
-        if (session == null) return "LIVE STATUS\n\nBelum ada aktiviti provider yang direkodkan.\nBuka provider atau cuba memainkan video dahulu."
-
-        val ongoing = pending.entries.filter { it.key > ignoreThrough && it.value.session == session }
-        val activeProvider = ongoing.lastOrNull { it.value.stage in providerStages }?.value?.provider
-        val loggedProvider = entries.lastOrNull {
-            it.session == session && it.stage in providerStages && it.info.contains("provider=")
-        }?.let { field(it.info, "provider") }
-        val provider = activeProvider ?: loggedProvider
-        val latest = ongoing.maxWithOrNull(compareBy<Map.Entry<Long, Pending>> {
+    private fun liveStatus(now: Long): String {
+        // Live Status is an APPEND-ONLY HUMAN-READABLE VIEW over the retained trace.
+        // Do not replace completed sessions with the latest session, or trim to 8/12
+        // messages. Events remain visible until Clear or the bounded event history
+        // reaches MAX_ENTRIES (oldest-first eviction to protect app memory).
+        val running = pending.entries.filter { it.key > ignoreThrough }
+        val latest = running.maxWithOrNull(compareBy<Map.Entry<Long, Pending>> {
             when (it.value.stage) {
                 "CLOUDFLARE" -> 6; "HTTP" -> 5; "EXTRACTOR", "LINKS" -> 4
                 "HOMEPAGE_SECTION" -> 3; "HOMEPAGE" -> 2; else -> 1
             }
         }.thenBy { it.key })
-        val recent = entries.filter { it.session == session }.mapNotNull { e ->
-            liveEvent(e)?.let { e.at to it }
+
+        // Build session labels from observed provider events, never from a network
+        // hostname that may belong to an unrelated request.
+        val labels = mutableMapOf<Long, String>()
+        entries.forEach { e ->
+            if (e.stage in providerStages) {
+                field(e.info, "provider")?.takeIf { it.isNotBlank() }?.let {
+                    labels[e.session] = it
+                }
+            }
         }
-        // Collapse repeated section starts, retries and concurrent identical outcomes.
-        val compact = mutableListOf<Pair<String, String>>()
-        recent.forEach { row -> if (compact.lastOrNull()?.second != row.second) compact.add(row) }
+        running.forEach { (_, task) ->
+            if (task.stage in providerStages) labels[task.session] = task.provider
+        }
+
         return buildString {
             appendLine("LIVE STATUS")
-            if (!provider.isNullOrBlank()) appendLine("Provider: $provider")
             appendLine()
             if (latest != null) {
                 val task = latest.value
                 val seconds = (now - task.since).coerceAtLeast(0L) / 1000L
                 appendLine("SEKARANG: ${liveAction(task.stage, task.provider)}")
                 appendLine("Menunggu ${seconds}s.")
-                if (task.stage == "HOMEPAGE" || task.stage == "HOMEPAGE_SECTION")
-                    appendLine("Jika masih menunggu, langkah dalaman plugin mungkin belum direkodkan.")
             } else {
                 appendLine("SEKARANG: Tiada proses aktif yang dapat dikesan.")
             }
             appendLine()
-            appendLine("PROSES TERKINI")
-            if (compact.isEmpty()) appendLine("Belum ada langkah yang dapat dikenal pasti untuk sesi ini.")
-            compact.takeLast(if (importantOnly) 8 else 12).forEach { (time, message) ->
-                appendLine("$time  $message")
+            appendLine("SEJARAH PROSES")
+            if (dropped > 0) appendLine("Nota: $dropped rekod paling lama digugurkan kerana had memori.")
+            var lastSession: Long? = null
+            var shown = 0
+            entries.forEach { e ->
+                val description = liveEvent(e) ?: return@forEach
+                if (lastSession != e.session) {
+                    if (shown > 0) appendLine()
+                    val label = labels[e.session]
+                    appendLine("— ${if (label == null) "Sesi #${e.session}" else "$label · Sesi #${e.session}"} —")
+                    lastSession = e.session
+                }
+                appendLine("${e.at}  $description")
+                shown++
             }
+            if (shown == 0) appendLine("Belum ada langkah yang dapat dikenal pasti. Buka provider dahulu.")
         }.trimEnd()
     }
 
     /** Existing UI consumes these strings; only the spinner categories and report change. */
     fun report(section: String, importantOnly: Boolean): String = synchronized(lock) {
         val now = SystemClock.elapsedRealtime()
-        if (section == "Live Status") return@synchronized liveStatus(now, importantOnly)
+        if (section == "Live Status") return@synchronized liveStatus(now)
         val selected = entries.filter { section == "Full timeline" || it.section == section }
         val active = pending.filterValues {
             section == "Full timeline" || sectionOf(it.stage) == section
