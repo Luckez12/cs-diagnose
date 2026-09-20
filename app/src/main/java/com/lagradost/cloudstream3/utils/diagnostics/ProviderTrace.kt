@@ -104,7 +104,7 @@ object ProviderTrace {
             name.startsWith("HOME") -> "Homepage"
             name.contains("SEARCH") -> "Search"
             name.contains("META") || name.contains("DETAIL") -> "Metadata"
-            name.contains("HTTP") || name.contains("NETWORK") || name.contains("CLOUDFLARE") -> "HTTP / Network",
+            name.contains("HTTP") || name.contains("NETWORK") || name.contains("CLOUDFLARE") -> "HTTP / Network"
             name == "PLUGIN_LOG" -> "Plugin Logs"
             name.contains("LINK") || name.contains("EXTRACT") || name.contains("SUBTITLE") -> "Links / Extractor"
             name.contains("PLAYER") || name.contains("PLAYBACK") || name.contains("FIRST_FRAME") || name.contains("BUFFER") -> "Player"
