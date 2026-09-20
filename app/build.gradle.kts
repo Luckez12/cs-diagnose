@@ -142,8 +142,7 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
-    // Phone-only APK: generate just ARM64, without ARM32/x86/universal variants.
-    // Keep native codec dependencies and debug diagnostics unchanged.
+    // Only one ARM64 APK. Keep all codec and extension dependencies.
     splits {
         abi {
             isEnable = true
