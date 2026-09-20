@@ -1,0 +1,67 @@
+name: Build CS Diagnose ARM64
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - Auto Unzip CS Diagnose
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cs-diagnose-build-${{ github.event.workflow_run.head_branch || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event_name == 'workflow_run' &&
+           github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+           github.event.workflow_run.head_repository.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    steps:
+      # workflow_run.head_sha is the pre-extraction commit: use current branch.
+      - name: Checkout latest extracted source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+
+      - name: Install compile SDK
+        run: sdkmanager --install 'platforms;android-37'
+
+      - name: Set up Gradle cache
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Build stable ARM64 debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:assembleStableDebug
+          mkdir -p cs-diagnose-apk
+          find app/build/outputs/apk/stable/debug -type f -name '*arm64-v8a*.apk' -exec cp {} cs-diagnose-apk/ \;
+          test "$(find cs-diagnose-apk -type f -name '*.apk' | wc -l)" -eq 1
+
+      - name: Upload ARM64 debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: cs-diagnose-arm64-stable-debug
+          path: cs-diagnose-apk/*.apk
+          if-no-files-found: error

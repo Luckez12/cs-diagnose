@@ -1,0 +1,74 @@
+name: Auto Unzip CS Diagnose
+
+on:
+  push:
+    paths:
+      - '*.zip'
+      - '**/*.zip'
+      - '*.ZIP'
+      - '**/*.ZIP'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-unzip-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  unzip:
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          persist-credentials: true
+
+      - name: Extract all ZIP files, then delete them
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path, PurePosixPath
+          from zipfile import ZipFile
+
+          root = Path.cwd()
+          archives = sorted(p for p in root.rglob('*')
+              if p.is_file() and p.suffix.lower() == '.zip'
+              and not any(x in {'.git', '.gradle', 'build'} for x in p.relative_to(root).parts))
+          for archive in archives:
+              print('Extracting:', archive.relative_to(root), flush=True)
+              with ZipFile(archive) as z:
+                  if z.testzip() is not None:
+                      raise ValueError(f'Corrupt ZIP: {archive}')
+                  for item in z.infolist():
+                      name = item.filename
+                      parts = PurePosixPath(name).parts
+                      file_type = (item.external_attr >> 16) & 0o170000
+                      if (not name or name.startswith('/') or '\\' in name
+                          or '..' in parts or '.git' in parts or file_type == 0o120000
+                          or name.startswith('.github/workflows/')):
+                          raise ValueError(f'Unsafe ZIP entry: {name}')
+                  z.extractall(root)
+              archive.unlink()  # Only after successful extraction of this archive.
+              print('Extracted and deleted:', archive.relative_to(root), flush=True)
+          if not archives:
+              print('No ZIP files found.')
+          PY
+
+      - name: Commit extracted files and removed ZIPs
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No file changes.'
+            exit 0
+          fi
+          git commit -m 'Extract CS Diagnose source and remove uploaded ZIP'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
