@@ -9,3 +9,5 @@
 7. Before patching, inspect the latest available source/previous patch and the exact call sites. Never claim something was compiled, checked on a phone or confirmed on GitHub if it was not.
 8. Distinguish captured observations from conclusions: HTTP 403 alone does not prove Cloudflare; HTTP 200 alone does not guarantee playable video; poster URL selected is not proof the image loaded; Log.w in a provider is not necessarily a final failure.
 9. On every new patch, update `PROJECT_CONTEXT.md`, `WORKFLOW_RULES.md` and `AI_HANDOVER.md`, recording exactly what changed and what remains unverified. Do not silently merge this project with VUEO, Nuvio or another repo mentioned in examples.
+
+10. When debugging playback, never treat `streams > 0` as successful playback. Correlate `LINK_RECEIVED.source_ref` with `PLAYER_SELECTED.source_ref` and the exact player's `PLAYBACK_HTTP_ERROR`, `PLAYBACK_FORMAT_ERROR` and `FAIL PLAYER` events. Never claim an HTTP code or Content-Type unless Media3 actually exposed it. Do not log authentication header values or full signed media URLs, and do not introduce extra stream probes just for diagnostics.

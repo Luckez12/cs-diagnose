@@ -1,23 +1,26 @@
 # CS Diagnose — AI Handover
 
-Date: 2026-09-21. Latest patch: **v13 Search + Plugin Log Readability**.
+Date: 2026-09-21. Latest patch: **v14 Playback Source Diagnostic**.
 
-**Read `PROJECT_CONTEXT.md` and `WORKFLOW_RULES.md` first.** Use the most recent actual repository tree or source ZIP as ground truth; old patches are not guaranteed to represent the GitHub repository's current files. The user asked for a patch ZIP with correct embedded paths, never a locally built APK.
+Read `PROJECT_CONTEXT.md` and `WORKFLOW_RULES.md` first. The latest ACTUAL user's GitHub repo, if accessible, is ground truth; this patch was prepared by overlaying available source ZIP and v6–v13 patches, and does not guarantee there were no independent GitHub edits.
 
-## Last user request
+## Last request and evidence
 
-The user showed Plugin Logs capturing `ANICHIN_V57_HOME` and multiple `ANICHIN_V57_POSTER` lines and asked to improve search, readability, and reduce poster URL clutter in Important, while making link discovery results visible for diagnosing `Link not found`. They previously requested context documentation in the next patch for handing the project to another AI.
+The user tested provider **4KHDHub**, title Euphoria. Full Timeline: 10 links (5 x 2160p, 5 x 1080p) returned in ~8.4s but selected streams failed playback. Different player attempts reported an AC3 parser `ArrayIndexOutOfBoundsException`, `HttpDataSource.InvalidResponseCodeException` (actual HTTP status not recorded by v13), and `UnrecognizedInputFormatException`. The previous log could not match each chosen link/server with the failure. The user said `mula now` to implement Playback Source Diagnostic, not to fix a particular video URL, and explicitly does not permit local APK builds.
 
-## v13 deliverables
+## Deliverable
 
-- `app/src/main/java/com/lagradost/cloudstream3/utils/diagnostics/DiagnosticDialog.kt`: delegates existing search UI to `DiagnosticSearch.filter`; no change to page layout, Settings or Logcat.
-- `app/src/main/java/com/lagradost/cloudstream3/utils/diagnostics/DiagnosticSearch.kt`: searches sanitized multi-line events as blocks; preserves Live Status session headings for matching events and all history for matching provider headings.
-- `app/src/main/java/com/lagradost/cloudstream3/utils/diagnostics/ProviderTrace.kt`: Plugin Logs formatted in readable multi-line events; Important summarizes selected poster URL logs without printing their URLs; explicit plugin link failures shown; Links / Extractor includes plugin discovery/completion entries.
-- `PROJECT_CONTEXT.md`, `WORKFLOW_RULES.md`, `AI_HANDOVER.md` — update these on every patch.
+Patch ZIP `cs-diagnose-playback-source-v14.zip` contains exactly these relative repo-root paths:
 
-## Validation / open items
+- `app/src/main/java/com/lagradost/cloudstream3/utils/diagnostics/PlaybackSourceTrace.kt` (new): stable source_ref per URL and safe selected/received link details; capture typed Media3 HTTP error response code, response Content-Type, sanitized failing host/endpoint, Range start, header **names only**, and observed parser/format categories. No HTTP probes or raw exception messages.
+- `app/src/main/java/com/lagradost/cloudstream3/utils/diagnostics/ProviderTrace.kt`: structured safe detail for exception outcome; late failure after first-frame PASS remains `FAIL PLAYER`; human-readable live error step from actual captured reason.
+- `app/src/main/java/com/lagradost/cloudstream3/ui/APIRepository.kt`: replace number-only `LINK_RECEIVED` note with source-ref link record.
+- `app/src/main/java/com/lagradost/cloudstream3/ui/player/CS3IPlayer.kt`: selected link record at player start; snapshot each player's op/link for callbacks; typed error capture before the existing `PLAYER_ERROR` event.
+- `PROJECT_CONTEXT.md`, `WORKFLOW_RULES.md`, `AI_HANDOVER.md` (updated, always include with future patches).
 
-- ZIP structure and pure Kotlin search tests can be checked locally. **No Android APK compiled or installed here.** If GitHub Actions reports Kotlin errors, inspect the actual build log and fix only grounded errors.
-- On-device acceptance: after a provider logs HOME/POSTER, Important > Plugin Logs should show a short poster selection count. Full trace > Plugin Logs should preserve each sanitized line with its tag and URL. Search for part of the poster path or `ANICHIN_V57_DISCOVERY` should show matching complete events. Links / Extractor should include discovery and DONE messages emitted when pressing Play.
-- If the provider's `loadLinks` returns false without logging its internal error/timeout, the generic APK cannot invent the missing reason. Add logging to that specific extension only with the user's consent.
-- Plugin message collector remains best-effort, Android access and active session mapping are limited; unlinked events must stay unlinked.
+## Constraints / verification
+
+- Preserve official Settings, original Logcat and Diagnostic UI; Diagnose remains below Extensions. Stable ARM64 separate install/build flavor unchanged. No workflow YAML in patch ZIP; existing auto-unzip and auto/manual build on GitHub are unchanged.
+- Kotlin/JVM stub test covered source_ref matching, HTTP 403/Content-Type/redirected-host/Range, no emitted header values/URL query secrets, and late player failure being recorded as `PLAYER`. **This is not full Android compilation.** GitHub build and on-device test are still pending; inspect real Kotlin build log if it fails.
+- v14 intentionally doesn't promise to log all successful video HTTP status/Content-Type, live media payload bytes or every plugin's private HTTP client; only details available from observed player exceptions are logged. `UnrecognizedInputFormatException` does not prove HTML was returned; an HTTP 403 alone doesn't prove Cloudflare.
+- The extension's own output may be collected in Plugin Logs only best-effort. Link URL fingerprints can differ after plugins rewrite source URLs. If user asks for deeper detail, investigate the actual source and request explicit permission before changing the extension or UI.

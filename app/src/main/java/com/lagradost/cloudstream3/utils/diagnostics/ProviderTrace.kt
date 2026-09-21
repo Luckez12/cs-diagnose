@@ -307,12 +307,16 @@ object ProviderTrace {
 
     fun failure(op: Long, type: String, details: String = "") = synchronized(lock) {
         val item = pending.remove(op)
+        // A player may render its first frame (PASS) and then fail during a later
+        // segment. Preserve the original PLAYER stage for that late failure.
+        val previousStart = if (item == null) entries.firstOrNull { it.op == op && it.level == "START" } else null
+        val stage = item?.stage ?: previousStart?.stage ?: "REQUEST"
         val elapsed = item?.let { SystemClock.elapsedRealtime() - it.since } ?: 0L
-        val actor = if (item?.stage == "HTTP" || item?.stage == "CLOUDFLARE") "host" else "provider"
-        val recent = if (item?.stage == "LINKS") recentNetwork[item.session]
+        val actor = if (stage == "HTTP" || stage == "CLOUDFLARE") "host" else "provider"
+        val recent = if (stage == "LINKS") recentNetwork[item?.session ?: operationSessions[op]]
             ?.joinToString(";", prefix = " recent_http_attempts=", postfix = " (not necessarily cause)") ?: "" else ""
-        record(op, "FAIL", item?.stage ?: "REQUEST",
-            "$actor=${item?.provider ?: "unknown"} type=${clean(type)} elapsed=${elapsed}ms ${clean(details)}$recent")
+        record(op, "FAIL", stage,
+            "$actor=${item?.provider ?: previousStart?.info?.substringAfter("provider=")?.substringBefore(' ') ?: "unknown"} type=${clean(type)} elapsed=${elapsed}ms ${clean(details)}$recent")
     }
 
     fun cancelled(op: Long) = synchronized(lock) {
@@ -320,10 +324,11 @@ object ProviderTrace {
         record(op, "CANCEL", item.stage, "provider=${item.provider} elapsed=${SystemClock.elapsedRealtime() - item.since}ms")
     }
 
-    /** Throwable.message can contain a signed URL or credential, so retain class + safe frames. */
-    fun exception(op: Long, cause: Throwable) {
+    /** Throwable.message can contain a signed URL or credential, so retain class + safe frames.
+     * `details` must already consist of structured, non-secret fields, never raw exception text. */
+    fun exception(op: Long, cause: Throwable, details: String = "") {
         if (cause is CancellationException) { cancelled(op); return }
-        failure(op, cause.javaClass.simpleName.ifBlank { "Throwable" })
+        failure(op, cause.javaClass.simpleName.ifBlank { "Throwable" }, details)
         var t: Throwable? = cause
         var depth = 0
         while (t != null && depth < 3) {
@@ -422,6 +427,18 @@ object ProviderTrace {
             return if (field(e.info, "selection") == "movie") "Filem dipilih: $title."
                 else "Memilih $title — musim ${field(e.info, "season") ?: "?"}, episod ${field(e.info, "episode") ?: "?"}" +
                     (field(e.info, "episode_name")?.takeUnless { it == "Unnamed" }?.let { " (${it.replace('_', ' ')})" } ?: "") + "."
+        }
+        if (stage == "PLAYER_SELECTED" && level == "INFO") {
+            return "Sumber video dipilih (${field(e.info, "source_ref") ?: "ID tidak tersedia"}); " +
+                "${field(e.info, "server")?.replace('_', ' ') ?: "server tidak diketahui"}, " +
+                "kualiti ${field(e.info, "quality") ?: "tidak diketahui"}."
+        }
+        if (stage == "PLAYBACK_HTTP_ERROR" && level == "INFO") {
+            return "Permintaan video ditolak oleh server (HTTP ${field(e.info, "http_status") ?: "?"}); " +
+                "lihat Player untuk host dan jenis respons."
+        }
+        if (stage == "PLAYBACK_FORMAT_ERROR" && level == "INFO") {
+            return "Player gagal membaca format media; lihat Player untuk jenis ralat sebenar."
         }
         if (stage == "PLUGIN_LOG") return when (level) {
             "ERROR", "WARN" -> "Plugin melaporkan masalah. Butiran ada dalam Plugin Logs."

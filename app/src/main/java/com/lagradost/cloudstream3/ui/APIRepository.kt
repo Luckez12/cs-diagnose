@@ -20,6 +20,7 @@ import com.lagradost.cloudstream3.newSearchResponseList
 import com.lagradost.cloudstream3.utils.Coroutines.atomicListOf
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.diagnostics.ProviderTrace
+import com.lagradost.cloudstream3.utils.diagnostics.PlaybackSourceTrace
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -279,7 +280,7 @@ class APIRepository(val api: MainAPI) {
                         },
                         { link ->
                             val number = streams.incrementAndGet()
-                            ProviderTrace.note(op, "LINK_RECEIVED", "number=$number type=${link.type} quality=${link.quality}")
+                            PlaybackSourceTrace.received(op, number, link)
                             callback(link)
                         }
                     )

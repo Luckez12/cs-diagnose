@@ -1,6 +1,6 @@
 # CS Diagnose — Project Context
 
-Last updated: 2026-09-21. Patch version: v13 (Search & Plugin Log Readability).
+Last updated: 2026-09-21. Patch version: v14 (Playback Source & Player Error Correlation).
 
 ## Purpose
 
@@ -31,3 +31,14 @@ This patch builds on v12 (Diagnostic Search + Plugin Logs), without replacing Cl
 - A plugin's log that arrives outside an active provider operation can be shown as unlinked. Do not associate it with an arbitrary current session.
 - Existing screenshots showed repeated metadata requests and UI mistakes in older patches. Avoid reintroducing earlier experimental Settings/Logcat UI code.
 - Only the **GitHub Actions build on the user's repository** will establish whether the full Android project compiles and what the APK actually displays. No APK build was run for v13 here.
+
+
+## v14 — Playback Source Diagnostic (2026-09-21)
+
+- `APIRepository.loadLinks` calls `PlaybackSourceTrace.received` per returned ExtractorLink: source_ref (SHA-256-derived 16-hex identifier), actual video host, server label, type and quality. No full media URL or signed query recorded.
+- `CS3IPlayer.loadPlayer` records PLAYER_SELECTED for the chosen link with the SAME source_ref, redacted endpoint, provider-supplied server/name labels, quality, format, referer HOST, and **presence/names only** of selected request headers (never values).
+- Player listener binds a snapshot of the attempt ID/link, preventing callbacks from a previous player from being attached to a newly selected link. Subsequent failures record source_ref, player error code, typed HTTP response code when Media3 exposes InvalidResponseCodeException, response Content-Type when available, sanitized *failing* host/URI, Range start, and classification of observed AC3 parser / unrecognized format failures. Typed stack trace remains in Full Trace.
+- The existing `ProviderTrace.exception` accepts structured safe details; if a late player failure happens after first frame/PLAYER PASS, it is still labeled FAIL PLAYER, not FAIL REQUEST.
+- Diagnostic UI/Settings/Logcat/workflow are unchanged. No new preflight network call or forced retry is introduced. Source error does not prove server block/codec problem without actual status/content/stack; Content-Type/HTTP status can be absent for decoder errors or sources handled outside instrumented player.
+- Search and sections already present in v13 continue working; Important > Player includes actual code and source_ref, Full trace > Player includes detailed evidence. Match identical source_ref values across Links / Extractor and Player. Different link URLs (including signed query variations) produce different source_ref IDs.
+- Redaction is best-effort. Check any report before sharing, especially plugin-authored logs. Actual GitHub APK compilation/device behavior remain unverified; only source checks and Kotlin stub tests are run locally, **never an Android APK build**.

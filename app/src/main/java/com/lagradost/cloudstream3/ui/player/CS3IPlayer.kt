@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.lagradost.cloudstream3.utils.diagnostics.ProviderTrace
+import com.lagradost.cloudstream3.utils.diagnostics.PlaybackSourceTrace
 import android.util.Rational
 import android.widget.FrameLayout
 import androidx.annotation.AnyThread
@@ -138,6 +139,7 @@ const val toleranceAfterUs = 300_000L
 @OptIn(UnstableApi::class)
 class CS3IPlayer : IPlayer {
     private var providerTracePlayerId: Long = 0L
+    private var providerTraceSelectedLink: ExtractorLink? = null
     private var playerListener: Player.Listener? = null
     private var isPlaying = false
     private var exoPlayer: ExoPlayer? = null
@@ -285,6 +287,8 @@ class CS3IPlayer : IPlayer {
         Log.i(TAG, "loadPlayer")
         providerTracePlayerId = ProviderTrace.begin("PLAYER", "selected_source",
             "source=" + when { link != null -> "stream"; data != null -> "local"; else -> "none" })
+        providerTraceSelectedLink = link
+        if (link != null) PlaybackSourceTrace.selected(providerTracePlayerId, link)
         if (sameEpisode) {
             saveData()
         } else {
@@ -1457,6 +1461,10 @@ class CS3IPlayer : IPlayer {
 
             LiveHelper.registerPlayer(exoPlayer)
 
+            // Bind callbacks to THIS player attempt. Old callbacks from a released
+            // player must not be attributed to a newly selected stream.
+            val tracePlayerIdForListener = providerTracePlayerId
+            val traceLinkForListener = providerTraceSelectedLink
             exoPlayer?.addListener(object : Player.Listener {
                 override fun onTracksChanged(tracks: Tracks) {
                     safe {
@@ -1550,8 +1558,8 @@ class CS3IPlayer : IPlayer {
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    ProviderTrace.exception(providerTracePlayerId, error)
-                    ProviderTrace.note(providerTracePlayerId, "PLAYER_ERROR", "code=${error.errorCode}")
+                    PlaybackSourceTrace.error(tracePlayerIdForListener, traceLinkForListener, error)
+                    ProviderTrace.note(tracePlayerIdForListener, "PLAYER_ERROR", "code=${error.errorCode}")
                     // If the Network fails then ignore the exception if the duration is set.
                     // This is to switch mirrors automatically if the stream has not been fetched, but
                     // allow playing the buffer without internet as then the duration is fetched.
@@ -1606,7 +1614,7 @@ class CS3IPlayer : IPlayer {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     super.onPlaybackStateChanged(playbackState)
-                    ProviderTrace.note(providerTracePlayerId, "PLAYER_STATE", when (playbackState) {
+                    ProviderTrace.note(tracePlayerIdForListener, "PLAYER_STATE", when (playbackState) {
                         Player.STATE_IDLE -> "idle"
                         Player.STATE_BUFFERING -> "buffering"
                         Player.STATE_READY -> "ready"
@@ -1652,8 +1660,8 @@ class CS3IPlayer : IPlayer {
 
                 override fun onRenderedFirstFrame() {
                     super.onRenderedFirstFrame()
-                    ProviderTrace.note(providerTracePlayerId, "FIRST_FRAME", "rendered")
-                    ProviderTrace.finish(providerTracePlayerId, "first_frame=yes")
+                    ProviderTrace.note(tracePlayerIdForListener, "FIRST_FRAME", "rendered")
+                    ProviderTrace.finish(tracePlayerIdForListener, "first_frame=yes")
                     onRenderFirst()
                     updatedTime(source = PlayerEventSource.Player)
                 }
