@@ -65,20 +65,25 @@ object PlaybackNetworkTrace {
     private fun requestInfo(info: LoadEventInfo, media: MediaLoadData): String {
         val spec = info.dataSpec
         val headers = spec.httpRequestHeaders.keys.map { it.lowercase(Locale.US) }.toSet()
+        // DataSpec carries only per-request explicit keys. Factory defaults and Cronet's
+        // eventual on-wire headers are NOT visible here; absence of a key proves neither
+        // absence of that header on the network nor that a configured link header was lost.
         return "load_id=${info.loadTaskId} data_type=${media.dataType} " +
             "track_type=${media.trackType} method=${method(spec.httpMethod)} " +
             "host=${host(spec.uri.toString())} request_url=${ProviderSafeText.url(spec.uri.toString())} " +
             "range_start=${spec.position} requested_length=${spec.length} " +
-            "range_header_present=${"range" in headers} " +
-            "referer_header_present=${"referer" in headers} " +
-            "origin_header_present=${"origin" in headers}"
+            "dataspec_range_key=${"range" in headers} " +
+            "dataspec_referer_key=${"referer" in headers} " +
+            "dataspec_origin_key=${"origin" in headers} transport_headers=not_observed"
     }
 
     private fun resultInfo(info: LoadEventInfo): String {
         val initial = info.dataSpec.uri.toString()
         val final = info.uri.toString()
+        // A different observed final URI does not establish the number or reason of
+        // redirects; equal URIs do not rule out a redirect chain that returned to origin.
         return "final_host=${host(final)} final_url=${ProviderSafeText.url(final)} " +
-            "redirect_observed=${initial != final} redirect_hops=not_exposed"
+            "initial_final_uri_differ=${initial != final} redirect_hops=not_exposed"
     }
 
     /** A single instance per player prevents events from an old source being attributed to a new one. */
@@ -105,7 +110,7 @@ object PlaybackNetworkTrace {
                 // Some data may come from cache rather than the network.
                 ProviderTrace.note(op, "PLAYBACK_NET_COMPLETE", prefix +
                     "load_id=${loadEventInfo.loadTaskId} http_status=not_exposed " +
-                    "duration_ms=${loadEventInfo.loadDurationMs} bytes_read=${loadEventInfo.bytesLoaded} " +
+                    "media3_load_duration_ms=${loadEventInfo.loadDurationMs} bytes_read=${loadEventInfo.bytesLoaded} " +
                     "cache_or_network=not_determined " + responseInfo(loadEventInfo.responseHeaders) +
                     " " + resultInfo(loadEventInfo))
             }
@@ -126,17 +131,16 @@ object PlaybackNetworkTrace {
                 ProviderTrace.note(op, "PLAYBACK_NET_ERROR", prefix +
                     "load_id=${loadEventInfo.loadTaskId} http_status=${http?.responseCode ?: "not_exposed"} " +
                     "error_type=${error.javaClass.simpleName} deepest_cause=${causes.last().javaClass.simpleName} " +
-                    "duration_ms=${loadEventInfo.loadDurationMs} bytes_read=${loadEventInfo.bytesLoaded} " +
+                    "media3_load_duration_ms=${loadEventInfo.loadDurationMs} bytes_read=${loadEventInfo.bytesLoaded} " +
                     "was_canceled=$wasCanceled load_error_not_final=true " + responseInfo(headers) +
-                    " failing_host=${host(actualFailingUrl ?: loadEventInfo.uri.toString())} " +
-                    "failing_url=${ProviderSafeText.url(actualFailingUrl ?: loadEventInfo.uri.toString())}")
-                // Separate compact record guarantees the sanitized failing URI remains visible
-                // even if the detailed response record exceeds ProviderTrace's 420-char limit.
+                    " failing_host=${host(actualFailingUrl ?: loadEventInfo.uri.toString())}")
+                // Keep the error event short; failing URL belongs only to TARGET, so a
+                // truncated duplicate cannot appear as a misleading `https://` fragment.
                 ProviderTrace.note(op, "PLAYBACK_NET_TARGET", prefix +
                     "load_id=${loadEventInfo.loadTaskId} " +
                     "failing_host=${host(actualFailingUrl ?: loadEventInfo.uri.toString())} " +
                     "failing_url=${ProviderSafeText.url(actualFailingUrl ?: loadEventInfo.uri.toString())} " +
-                    "redirect_observed=${loadEventInfo.dataSpec.uri.toString() != loadEventInfo.uri.toString()} " +
+                    "initial_final_uri_differ=${loadEventInfo.dataSpec.uri.toString() != loadEventInfo.uri.toString()} " +
                     "redirect_hops=not_exposed")
                 // This load error does not imply a final PLAYER failure; Media3 may recover.
             }

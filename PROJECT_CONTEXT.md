@@ -1,13 +1,13 @@
 # CS Diagnose — Project Context
 
-Last updated: 2026-09-21. Latest patch: **v15 Playback Network Trace**. This is the CS Diagnose Android project based on the user's supplied official CloudStream source, not VUEO or Nuvio. Normal watching takes place in the separate official CloudStream APK; CS Diagnose is intended only to collect the most accurate diagnostic evidence for providers, network/extractors, and playback. It must **not** fix, rewrite, probe, filter out, or change the behavior of provider/stream requests to diagnose them.
+Last updated: 2026-09-21. Latest patch: **v15.1 Accuracy & Stability Fix**. This is the CS Diagnose Android project based on the user's supplied official CloudStream source, not VUEO or Nuvio. Normal watching takes place in the separate official CloudStream APK; CS Diagnose is intended only to collect the most accurate diagnostic evidence for providers, network/extractors, and playback. It must **not** fix, rewrite, probe, filter out, or change the behavior of provider/stream requests to diagnose them.
 
 ## Established interface and packaging
 
 - Keep the original official CloudStream Settings and Logcat UI unchanged. Add only the separate **Diagnose** menu below Extensions in Settings. Diagnostic's page is already accepted; Important / Full trace, Search, Copy, Clear and Close are retained.
 - Sections: Live Status, Provider Process, HTTP / Network, Plugin Logs, Links / Extractor, Player, Full timeline. Live Status replaces Overview IN THE CATEGORY MENU, not as an extra panel. It is a human-readable append-only history with correctly named concurrent homepage sections and in-flight steps.
 - The App targets phone ARM64, Stable Debug, separate package ID so it installs alongside official CloudStream. Never change these or workflows without asking. ZIP patches have accurate relative repo-root paths, auto-unzip via GitHub Actions; workflow `.yml` files stay separate when they need changes.
-- Source of truth is the user's CURRENT GitHub `cs-diagnose` repo. This patch was prepared from the locally available v14 source snapshot, not a live comparison with their repository; reconcile any independent GitHub edits before applying.
+- Source of truth is the user's CURRENT GitHub `cs-diagnose` repo. v15.1 is a delta against the locally available v15 ZIP, not a verified live snapshot of GitHub; reconcile any independent GitHub edits before applying.
 - Three documentation files PROJECT_CONTEXT.md, WORKFLOW_RULES.md and AI_HANDOVER.md must be updated inside EVERY future source patch ZIP.
 
 ## Diagnostic principles
@@ -28,3 +28,11 @@ Last updated: 2026-09-21. Latest patch: **v15 Playback Network Trace**. This is 
 - Important includes `PLAYBACK_NET_ERROR` with an explicit **nonfinal** warning. Full trace keeps starts/completions/cancels and errors; user can match by load_id, source_ref and player op. No independent requests, preflight/probing, modified player data sources, altered headers or forced retries; app should play as before.
 - Known limitation: AnalyticsListener is at the media-source layer, not a raw socket trace and may not report every chunk/redirect or successful wire HTTP code. Some subtitles/audio/media/cache events may be in the same player session; `media_data_type` and `track_type` are retained to distinguish without inventing stream attribution. The 2500-entry in-memory ring may discard oldest high-volume logs; retention and UI remain unchanged here.
 - Only a narrow Kotlin/JVM stub test of the new observer, static source checks and ZIP validation were run. **No local Android APK build**, no GitHub compilation or phone verification. If GitHub fails, use the actual log to correct the code.
+
+## v15.1 Accuracy & Stability Fix (2026-09-21)
+
+- `PLAYER_SELECTED` now labels Referer and header names as *ExtractorLink configuration* (`link_referer_configured`, `link_header_names`), not proof of headers transmitted on the wire. `PLAYBACK_NET_START` labels explicit DataSpec keys (`dataspec_referer_key`, etc.) and explicitly says `transport_headers=not_observed`. Media3 observer cannot verify factory-default/Cronet-generated headers, so false does **not** establish missing Referer on HTTP transport.
+- `PLAYBACK_NET_ERROR` retains typed HTTP code only when exposed, response metadata, and Media3's reported load duration; it no longer embeds a duplicate URI that could be cut to `https://` by the entry-size limit. `PLAYBACK_NET_TARGET` holds the sanitized failing URI. `initial_final_uri_differ` reports only a comparison of two observed URIs, **not** that no redirects occurred.
+- Important groups repeated nonfinal `PLAYBACK_NET_ERROR` callbacks by **player op + load_id**. It shows numbers of observed START/ERROR callbacks and the observed HTTP status set, along with the final PLAYER failure if recorded. It does not equate callback count with actual network requests or treat each load error as final. Full Trace retains individual callbacks, targets and stack frames as before.
+- No new HTTP calls, probes, retries, header changes, filtering of links or playback behavior changes. Original Settings/Logcat and Diagnose layout/sections remain unchanged.
+- Static/ZIP checks are not an Android compilation or device verification. Build only via existing GitHub Actions. If source has since diverged from v15, review overlap before uploading.

@@ -46,8 +46,9 @@ object PlaybackSourceTrace {
             "source_ref=${sourceRef(link.url)} server=${ProviderTrace.sectionValue(link.source)} " +
                 "name=${ProviderTrace.sectionValue(link.name)} host=${host(link.url)} " +
                 "endpoint=${ProviderSafeText.url(link.url)} type=${link.type} quality=${link.quality} " +
-                "referer_host=${host(link.referer)} request_header_names=${headerFlags(link.headers.keys)} " +
-                "referer_present=${link.referer.isNotBlank()}")
+                // These values describe the ExtractorLink configuration, NOT observed wire headers.
+                "link_referer_host=${host(link.referer)} link_header_names=${headerFlags(link.headers.keys)} " +
+                "link_referer_configured=${link.referer.isNotBlank()} transport_headers=not_observed")
     }
 
     private fun responseType(headers: Map<String, List<String>>): String {
@@ -75,7 +76,7 @@ object PlaybackSourceTrace {
                     "request_host=${host(spec.uri.toString())} " +
                     "request_url=${ProviderSafeText.url(spec.uri.toString())} " +
                     "response_type=${responseType(invalid.headerFields)} " +
-                    "request_header_names=${headerFlags(spec.httpRequestHeaders.keys)} " +
+                    "error_dataspec_header_keys=${headerFlags(spec.httpRequestHeaders.keys)} " +
                     "range_start=${spec.position} error_type=InvalidResponseCodeException")
         }
         val hasUnknownFormat = causes.any { it.javaClass.simpleName == "UnrecognizedInputFormatException" }

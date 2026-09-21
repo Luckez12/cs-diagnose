@@ -641,12 +641,35 @@ object ProviderTrace {
                 }
             }
             if (importantOnly) {
-                val significant = selected.filter {
-                    it.level == "FAIL" || it.level == "SLOW" ||
-                        // An observed media-load error may recover; include as evidence, never
-                        // mistake it for a final PLAYER failure.
-                        it.stage == "PLAYBACK_NET_ERROR" ||
-                        (it.stage == "PLUGIN_LOG" && (it.level == "ERROR" || pluginFinalNoLinks(it)))
+                // Summarise repeated non-final load errors by player operation + Media3
+                // load task. Full Trace is unchanged: every START/ERROR/TARGET stays intact.
+                // Count observed callbacks, not inferred network attempts or retry success.
+                val loadKey: (Entry) -> Pair<Long, String> = { e ->
+                    e.op to (field(e.info, "load_id") ?: "not_exposed")
+                }
+                val loadErrors = selected.filter { it.stage == "PLAYBACK_NET_ERROR" }
+                    .groupBy(loadKey)
+                val loadStarts = selected.filter { it.stage == "PLAYBACK_NET_START" }
+                    .groupBy(loadKey)
+                val significant = selected.filter { e ->
+                    e.level == "FAIL" || e.level == "SLOW" ||
+                        (e.stage == "PLAYBACK_NET_ERROR" && loadErrors[loadKey(e)]?.last() === e) ||
+                        (e.stage == "PLUGIN_LOG" && (e.level == "ERROR" || pluginFinalNoLinks(e)))
+                }
+                fun importantDisplay(e: Entry): String {
+                    if (e.stage != "PLAYBACK_NET_ERROR") return displayEvent(e)
+                    val key = loadKey(e)
+                    val errors = loadErrors[key].orEmpty()
+                    val starts = loadStarts[key].orEmpty()
+                    val statuses = errors.mapNotNull { field(it.info, "http_status") }
+                        .distinct().joinToString(",").ifBlank { "not_exposed" }
+                    return "${e.at} session=${e.session} #${e.op} INFO PLAYBACK_LOAD_FAILURES " +
+                        "source_ref=${field(e.info, "source_ref") ?: "unknown"} " +
+                        "load_id=${key.second} starts_observed=${starts.size} " +
+                        "errors_observed=${errors.size} http_statuses=$statuses " +
+                        "last_error_type=${field(e.info, "error_type") ?: "unknown"} " +
+                        "last_content_type=${field(e.info, "content_type") ?: "not_available"} " +
+                        "nonfinal_load_errors=true (see Full_trace for every retry and PLAYER outcome)"
                 }
                 if (section == "Plugin Logs") {
                     // A poster URL being selected is not evidence that its image loaded.
@@ -663,9 +686,9 @@ object ProviderTrace {
                 appendLine("KEGAGALAN / PROSES PERLAHAN")
                 if (significant.isEmpty()) appendLine("Tiada kegagalan akhir atau proses perlahan direkodkan di sini.")
                 if (significant.any { it.stage == "PLAYBACK_NET_ERROR" })
-                    appendLine("Nota: PLAYBACK_NET_ERROR ialah ralat cubaan muat data; player mungkin mencuba semula. Semak FAIL PLAYER untuk kegagalan akhir.")
+                    appendLine("Nota: starts_observed/errors_observed = bilangan callback Media3, bukan bilangan request HTTP sebenar. Ralat muat data boleh pulih; semak FAIL PLAYER untuk hasil akhir.")
                 significant.takeLast(80).forEach { e ->
-                    appendLine(displayEvent(e))
+                    appendLine(importantDisplay(e))
                     appendLine()
                 }
                 if (selected.any { it.level == "WARN" && it.stage == "HTTP" })

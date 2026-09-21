@@ -1,4 +1,4 @@
-# CS Diagnose — Working Rules (v15, 2026-09-21)
+# CS Diagnose — Working Rules (v15.1, 2026-09-21)
 
 1. Respond in short, clear, friendly Malay; include limitations honestly. Confirm user-directed UI decisions before changing any screen outside the requested scope. Do not claim success without an actual check.
 2. Purpose is **observation and evidence collection only**, never repairing a provider, rewriting links, filtering out streams, preflight testing a video, changing headers, retry policy, player or provider behavior, or bypassing access controls to produce a log. Avoid speculative "root causes" in UI and reports.
@@ -10,3 +10,7 @@
 8. Preserve all observed failures (including recovered HTTP errors), genuine timings, typed exceptions and stack frames in Full trace. Attribute network events to a source_ref, load ID and player instance only if that association is grounded. Do not infer private extension steps or assign unrelated system traffic to a provider.
 9. Sanitize logs *before retention*; never include full signed media URLs, raw query strings, auth/cookie/header values or response bodies. Allowlist benign response metadata only (Content-Type/Length/Range, Accept-Ranges); still warn sharing users that redaction is best-effort.
 10. Media3 AnalyticsListener does not guarantee successful HTTP codes, all underlying HTTP requests, or a definitive network/cache attribution. Use `not_exposed` / `not_determined`, and distinguish the nonfinal `onLoadError` attempt from a final PLAYER failure. No diagnostic probes or interception that changes playback semantics.
+
+11. When reporting header information, distinguish link-provided configuration, explicit Media3 DataSpec keys, and **actual transmitted HTTP headers**. Never claim the latter from the former; do not infer missing Referer just because an explicit DataSpec key is absent.
+12. In Important, aggregate repetitive nonfinal load-error callbacks by player operation + load ID without deleting, dropping or changing Full Trace. Callback counts are not verified wire-request counts. HTTP status unavailable from the observer remains `not_exposed`.
+13. Before each patch, compare actual current repo files to the patch base, record honest limits of static checks, and keep this file plus PROJECT_CONTEXT.md/AI_HANDOVER.md up to date. The v15.1 patch base is the locally mounted v15 ZIP, **not** a verified current GitHub checkout.
