@@ -643,6 +643,9 @@ object ProviderTrace {
             if (importantOnly) {
                 val significant = selected.filter {
                     it.level == "FAIL" || it.level == "SLOW" ||
+                        // An observed media-load error may recover; include as evidence, never
+                        // mistake it for a final PLAYER failure.
+                        it.stage == "PLAYBACK_NET_ERROR" ||
                         (it.stage == "PLUGIN_LOG" && (it.level == "ERROR" || pluginFinalNoLinks(it)))
                 }
                 if (section == "Plugin Logs") {
@@ -659,6 +662,8 @@ object ProviderTrace {
                 appendLine()
                 appendLine("KEGAGALAN / PROSES PERLAHAN")
                 if (significant.isEmpty()) appendLine("Tiada kegagalan akhir atau proses perlahan direkodkan di sini.")
+                if (significant.any { it.stage == "PLAYBACK_NET_ERROR" })
+                    appendLine("Nota: PLAYBACK_NET_ERROR ialah ralat cubaan muat data; player mungkin mencuba semula. Semak FAIL PLAYER untuk kegagalan akhir.")
                 significant.takeLast(80).forEach { e ->
                     appendLine(displayEvent(e))
                     appendLine()

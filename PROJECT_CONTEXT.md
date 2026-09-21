@@ -1,44 +1,30 @@
 # CS Diagnose — Project Context
 
-Last updated: 2026-09-21. Patch version: v14 (Playback Source & Player Error Correlation).
+Last updated: 2026-09-21. Latest patch: **v15 Playback Network Trace**. This is the CS Diagnose Android project based on the user's supplied official CloudStream source, not VUEO or Nuvio. Normal watching takes place in the separate official CloudStream APK; CS Diagnose is intended only to collect the most accurate diagnostic evidence for providers, network/extractors, and playback. It must **not** fix, rewrite, probe, filter out, or change the behavior of provider/stream requests to diagnose them.
 
-## Purpose
+## Established interface and packaging
 
-CS Diagnose is a *separate* Android application built from the CloudStream source the user uploaded (`cloudstream-master.zip`) for diagnosing malfunctioning CloudStream providers. The user watches normally using the official CloudStream app. CS Diagnose is a developer-facing diagnostic build, not a new streaming provider and not the VUEO/Nuvio project. Do not confuse VUEO logs or provider-specific sample titles with CS Diagnose issues.
+- Keep the original official CloudStream Settings and Logcat UI unchanged. Add only the separate **Diagnose** menu below Extensions in Settings. Diagnostic's page is already accepted; Important / Full trace, Search, Copy, Clear and Close are retained.
+- Sections: Live Status, Provider Process, HTTP / Network, Plugin Logs, Links / Extractor, Player, Full timeline. Live Status replaces Overview IN THE CATEGORY MENU, not as an extra panel. It is a human-readable append-only history with correctly named concurrent homepage sections and in-flight steps.
+- The App targets phone ARM64, Stable Debug, separate package ID so it installs alongside official CloudStream. Never change these or workflows without asking. ZIP patches have accurate relative repo-root paths, auto-unzip via GitHub Actions; workflow `.yml` files stay separate when they need changes.
+- Source of truth is the user's CURRENT GitHub `cs-diagnose` repo. This patch was prepared from the locally available v14 source snapshot, not a live comparison with their repository; reconcile any independent GitHub edits before applying.
+- Three documentation files PROJECT_CONTEXT.md, WORKFLOW_RULES.md and AI_HANDOVER.md must be updated inside EVERY future source patch ZIP.
 
-## Existing design (as last reported by the user)
+## Diagnostic principles
 
-- The user wants original CloudStream Settings and original Logcat UI unchanged. There is one additional **Diagnose** entry below Extensions in Settings, opening a standalone Provider Diagnostic page.
-- Diagnostic page: Android status bar and CloudStream bottom navigation remain visible; Important / Full trace mode, selectable category, searchable log, and Copy / Clear / Close.
-- Categories: Live Status, Provider Process, HTTP / Network, Plugin Logs, Links / Extractor, Player, Full timeline. Live Status is the first category (not a separate panel or an Overview category).
-- Live Status is human-readable, chronological, append-only until Clear or retention limit, separated into provider sessions. A completed process must not remove earlier log lines. Multiple simultaneously loading homepage sections must not be merged or mislabeled.
-- Full trace keeps technical events, real outcomes, HTTP response codes, timing, verified Cloudflare challenge stages, extractor attempts, player state, plugin's own logged messages, and safe stack-trace data when instrumented.
-- Logs from `android.util.Log` inside installed provider extensions are bridged into Plugin Logs on a *best-effort* same-PID Android Logcat basis. `tag=Anichin` examples in user-provided `AnichinProvider.kt.txt` include HOME, POSTER, DISCOVERY and DONE messages; these are extension logs, not instrumentation built into all providers.
-- Logs may contain user content names, provider hosts and sanitized URLs. Do not store raw tokens/cookies/authorization headers, response bodies or signed URL query strings in a copied report. Redaction is best-effort; tell the user to check reports before sharing.
+- Record real observed events and provenance, not guesses. An HTTP 403 does not prove Cloudflare. A plugin-produced source does not imply playback success. An HTML Content-Type is a reported response header, not inspection of actual data bytes. One Media3 onLoadError is not necessarily final; playback may retry.
+- All logs remain searchable and long technical details belong in Full trace. Sensitive URLs/queries, tokens, cookies, authorization values, raw response bodies and arbitrary exception messages must not be stored in shared reports. Sanitize by default and instruct users to inspect the copied report before sharing (redaction best-effort).
+- An extension's Log.d/i/w/e may be observable through same-PID Plugin Logs best-effort; its private HTTP client or suppressed internal steps may not be. Don't invent unobserved provider internals.
 
-## Current v13 patch scope
+## Prior work through v14
 
-This patch builds on v12 (Diagnostic Search + Plugin Logs), without replacing CloudStream's application UI or building an APK:
+- Provider homepage sections, metadata/title/episode context, HTTP and Cloudflare hooks where instrumented; source/extension log categories; links/extractor and player tracing.
+- v14 assigns a stable `source_ref` hash of URL per received/selected link and records chosen server, quality, sanitized host and endpoint, v14 typed playback exceptions, HTTP status/Content-Type on InvalidResponseCodeException, AC3/unrecognized format indicators and safe stack frames. `LINK_RECEIVED` can be matched to `PLAYER_SELECTED` and `FAIL PLAYER` by source_ref.
 
-1. Search keeps an entire multi-line trace event when any line (including the sanitized URL) matches. It preserves relevant Live Status session headings; Copy uses the filtered report already shown in the UI.
-2. Full Trace > Plugin Logs formats each event with time, provider tag, level, session, message and attribution on separate readable lines; source text remains sanitized.
-3. Important > Plugin Logs summarizes how many POSTER URL-selection logs were observed, without listing long URLs and **without claiming the poster downloaded successfully**. Explicit `success=false` / `emitted=0` plugin result records are surfaced; WARNING alone is not treated as a final failure.
-4. Links / Extractor also shows the plugin's link discovery and final-result logs (`*_DISCOVERY`, `*_DONE`, extractor/link indicators), while full Plugin Logs remains the complete provider-tagged stream. Do not assume that every plugin logs these steps.
+## v15 implementation — passive Media3 playback-load evidence
 
-## Limits / next work
-
-- The installed extension may use a private HTTP client or suppress its own exceptions; CS Diagnose cannot know invisible steps or guess the reason for Link not found.
-- A plugin's log that arrives outside an active provider operation can be shown as unlinked. Do not associate it with an arbitrary current session.
-- Existing screenshots showed repeated metadata requests and UI mistakes in older patches. Avoid reintroducing earlier experimental Settings/Logcat UI code.
-- Only the **GitHub Actions build on the user's repository** will establish whether the full Android project compiles and what the APK actually displays. No APK build was run for v13 here.
-
-
-## v14 — Playback Source Diagnostic (2026-09-21)
-
-- `APIRepository.loadLinks` calls `PlaybackSourceTrace.received` per returned ExtractorLink: source_ref (SHA-256-derived 16-hex identifier), actual video host, server label, type and quality. No full media URL or signed query recorded.
-- `CS3IPlayer.loadPlayer` records PLAYER_SELECTED for the chosen link with the SAME source_ref, redacted endpoint, provider-supplied server/name labels, quality, format, referer HOST, and **presence/names only** of selected request headers (never values).
-- Player listener binds a snapshot of the attempt ID/link, preventing callbacks from a previous player from being attached to a newly selected link. Subsequent failures record source_ref, player error code, typed HTTP response code when Media3 exposes InvalidResponseCodeException, response Content-Type when available, sanitized *failing* host/URI, Range start, and classification of observed AC3 parser / unrecognized format failures. Typed stack trace remains in Full Trace.
-- The existing `ProviderTrace.exception` accepts structured safe details; if a late player failure happens after first frame/PLAYER PASS, it is still labeled FAIL PLAYER, not FAIL REQUEST.
-- Diagnostic UI/Settings/Logcat/workflow are unchanged. No new preflight network call or forced retry is introduced. Source error does not prove server block/codec problem without actual status/content/stack; Content-Type/HTTP status can be absent for decoder errors or sources handled outside instrumented player.
-- Search and sections already present in v13 continue working; Important > Player includes actual code and source_ref, Full trace > Player includes detailed evidence. Match identical source_ref values across Links / Extractor and Player. Different link URLs (including signed query variations) produce different source_ref IDs.
-- Redaction is best-effort. Check any report before sharing, especially plugin-authored logs. Actual GitHub APK compilation/device behavior remain unverified; only source checks and Kotlin stub tests are run locally, **never an Android APK build**.
+- Added `PlaybackNetworkTrace.kt`. Each selected stream's ExoPlayer instance gets its own AnalyticsListener and frozen source_ref + PLAYER operation. From actual `onLoadStarted`, `onLoadCompleted`, `onLoadError` and `onLoadCanceled`, log source_ref, loadTaskId, data/track type, requested source, sanitized initial/final URL and host, whether a redirect was observed, Range position/requested length/explicit header-presence flags, observed duration, bytes read, and **allowlisted** response Content-Type, Content-Length, Content-Range, Accept-Ranges when exposed. Typed HTTP error code only when Media3 `InvalidResponseCodeException` exposes one. The `Content-Type` classification is a hint, not a sample of the body. Error details and sanitized failing URL are split to avoid the per-event 420-character cap.
+- Successful Media3 loads **do not expose a reliable HTTP success status code** through this listener. Log `http_status=not_exposed` rather than fabricate 200 or 206. Media3 may serve cache reads; report `cache_or_network=not_determined`, not "network request definitely succeeded". A changed initial/final URI proves a redirect was observed but the number of hops is not available.
+- Important includes `PLAYBACK_NET_ERROR` with an explicit **nonfinal** warning. Full trace keeps starts/completions/cancels and errors; user can match by load_id, source_ref and player op. No independent requests, preflight/probing, modified player data sources, altered headers or forced retries; app should play as before.
+- Known limitation: AnalyticsListener is at the media-source layer, not a raw socket trace and may not report every chunk/redirect or successful wire HTTP code. Some subtitles/audio/media/cache events may be in the same player session; `media_data_type` and `track_type` are retained to distinguish without inventing stream attribution. The 2500-entry in-memory ring may discard oldest high-volume logs; retention and UI remain unchanged here.
+- Only a narrow Kotlin/JVM stub test of the new observer, static source checks and ZIP validation were run. **No local Android APK build**, no GitHub compilation or phone verification. If GitHub fails, use the actual log to correct the code.

@@ -1,26 +1,22 @@
 # CS Diagnose — AI Handover
 
-Date: 2026-09-21. Latest patch: **v14 Playback Source Diagnostic**.
+Date: 2026-09-21. Current patch: **v15 Playback Network Trace**. Read PROJECT_CONTEXT.md and WORKFLOW_RULES.md before making changes.
 
-Read `PROJECT_CONTEXT.md` and `WORKFLOW_RULES.md` first. The latest ACTUAL user's GitHub repo, if accessible, is ground truth; this patch was prepared by overlaying available source ZIP and v6–v13 patches, and does not guarantee there were no independent GitHub edits.
+## Why v15
 
-## Last request and evidence
+User tested 4KHDHub/Euphoria: 10 extracted links failed with different outcomes (AC3 parser exception, Media3 HTTP 403/404, unrecognized media format). v14 now correlates errors with individual server/selected link, but does not expose successful load response metadata or all attempt-level Media3 events. User explicitly wants only the most accurate possible information for future manual debugging, **not an automated fixer**. User said `mula now` to implement observation of actual playback responses without extra requests, UI changes or local APK build.
 
-The user tested provider **4KHDHub**, title Euphoria. Full Timeline: 10 links (5 x 2160p, 5 x 1080p) returned in ~8.4s but selected streams failed playback. Different player attempts reported an AC3 parser `ArrayIndexOutOfBoundsException`, `HttpDataSource.InvalidResponseCodeException` (actual HTTP status not recorded by v13), and `UnrecognizedInputFormatException`. The previous log could not match each chosen link/server with the failure. The user said `mula now` to implement Playback Source Diagnostic, not to fix a particular video URL, and explicitly does not permit local APK builds.
+## Exact files delivered inside `cs-diagnose-playback-network-v15.zip`
 
-## Deliverable
+- NEW `app/src/main/java/com/lagradost/cloudstream3/utils/diagnostics/PlaybackNetworkTrace.kt`: per-player passive Media3 AnalyticsListener logging load START/COMPLETE/ERROR/CANCEL; source_ref, load_id, actual URI/headers metadata when exposed; sanitized fields only. No request header values or response bodies. HTTP status on successful load explicitly unavailable; error code only from typed InvalidResponseCodeException. Media/cache source of loaded bytes is not established here.
+- CHANGED `app/src/main/java/com/lagradost/cloudstream3/ui/player/CS3IPlayer.kt`: attach observer to ExoPlayer instance for selected link; no changes to its media sources, transport or playback.
+- CHANGED `app/src/main/java/com/lagradost/cloudstream3/utils/diagnostics/PlaybackSourceTrace.kt`: expose `sourceRef()` internally to use the identical hash for the per-player network observer.
+- CHANGED `app/src/main/java/com/lagradost/cloudstream3/utils/diagnostics/ProviderTrace.kt`: include individual observed PLAYBACK_NET_ERROR events in Important and state explicitly that an attempt-level load error may recover.
+- UPDATED PROJECT_CONTEXT.md, WORKFLOW_RULES.md, AI_HANDOVER.md (three required handover docs).
 
-Patch ZIP `cs-diagnose-playback-source-v14.zip` contains exactly these relative repo-root paths:
+## Invariants, limitations and testing
 
-- `app/src/main/java/com/lagradost/cloudstream3/utils/diagnostics/PlaybackSourceTrace.kt` (new): stable source_ref per URL and safe selected/received link details; capture typed Media3 HTTP error response code, response Content-Type, sanitized failing host/endpoint, Range start, header **names only**, and observed parser/format categories. No HTTP probes or raw exception messages.
-- `app/src/main/java/com/lagradost/cloudstream3/utils/diagnostics/ProviderTrace.kt`: structured safe detail for exception outcome; late failure after first-frame PASS remains `FAIL PLAYER`; human-readable live error step from actual captured reason.
-- `app/src/main/java/com/lagradost/cloudstream3/ui/APIRepository.kt`: replace number-only `LINK_RECEIVED` note with source-ref link record.
-- `app/src/main/java/com/lagradost/cloudstream3/ui/player/CS3IPlayer.kt`: selected link record at player start; snapshot each player's op/link for callbacks; typed error capture before the existing `PLAYER_ERROR` event.
-- `PROJECT_CONTEXT.md`, `WORKFLOW_RULES.md`, `AI_HANDOVER.md` (updated, always include with future patches).
-
-## Constraints / verification
-
-- Preserve official Settings, original Logcat and Diagnostic UI; Diagnose remains below Extensions. Stable ARM64 separate install/build flavor unchanged. No workflow YAML in patch ZIP; existing auto-unzip and auto/manual build on GitHub are unchanged.
-- Kotlin/JVM stub test covered source_ref matching, HTTP 403/Content-Type/redirected-host/Range, no emitted header values/URL query secrets, and late player failure being recorded as `PLAYER`. **This is not full Android compilation.** GitHub build and on-device test are still pending; inspect real Kotlin build log if it fails.
-- v14 intentionally doesn't promise to log all successful video HTTP status/Content-Type, live media payload bytes or every plugin's private HTTP client; only details available from observed player exceptions are logged. `UnrecognizedInputFormatException` does not prove HTML was returned; an HTTP 403 alone doesn't prove Cloudflare.
-- The extension's own output may be collected in Plugin Logs only best-effort. Link URL fingerprints can differ after plugins rewrite source URLs. If user asks for deeper detail, investigate the actual source and request explicit permission before changing the extension or UI.
+- Settings, original Logcat, Diagnose UI, ABI/flavor/app package, all plugin code, Gradle and workflow YAMLs unchanged. Only selected source listener added. No probing, rewrites, forced retry, speculative diagnosis, or additional network traffic. ZIP has correct repo-relative paths and no YAML.
+- The observer reports Media3 media-source load events; it does not see *every* underlying TCP/HTTP exchange or guarantee status codes on successful loads. It cannot classify the actual returned body as HTML/video from Content-Type alone; response header metadata may be missing on cache hits, and actual final URI is only available when Media3 supplies it. No raw response bodies, tokens or full signed URLs stored.
+- Narrow Kotlin/JVM stub test of observer and static checks were run locally (no Android APK build/compilation). GitHub build and on-phone checks are still necessary. On build failure inspect GitHub Actions log. If a user reports events absent, check AnalyticsListener media-source dispatch for the selected stream before adding intrusive hooks; never promise missing data is available.
+- Patch made against local v14 source snapshot; if current GitHub repo has other modifications, review changes before replacing overlapping files. After install test 4KHDHub → Euphoria → failed links and send **Full Trace → Player**. Look for `PLAYBACK_NET_START`, `PLAYBACK_NET_COMPLETE`, `PLAYBACK_NET_ERROR`, `PLAYBACK_NET_TARGET` with matching source_ref/load_id and existing `FAIL PLAYER`.

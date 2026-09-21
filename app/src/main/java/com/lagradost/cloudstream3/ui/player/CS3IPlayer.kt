@@ -12,6 +12,7 @@ import android.os.Looper
 import android.util.Log
 import com.lagradost.cloudstream3.utils.diagnostics.ProviderTrace
 import com.lagradost.cloudstream3.utils.diagnostics.PlaybackSourceTrace
+import com.lagradost.cloudstream3.utils.diagnostics.PlaybackNetworkTrace
 import android.util.Rational
 import android.widget.FrameLayout
 import androidx.annotation.AnyThread
@@ -1382,6 +1383,10 @@ class CS3IPlayer : IPlayer {
             setHandleAudioBecomingNoisy(true)
             setPlaybackSpeed(playBackSpeed)
             this.addAnalyticsListener(tracksAnalyticsListener)
+            // Passive Media3 load evidence, bound to this player instance and its selected link.
+            providerTraceSelectedLink?.let { selected ->
+                this.addAnalyticsListener(PlaybackNetworkTrace.listener(providerTracePlayerId, selected))
+            }
         }
     }
 

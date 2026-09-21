@@ -14,7 +14,7 @@ import java.util.Locale
  * Never retain full media URLs, signed query strings, cookies or header values.
  */
 object PlaybackSourceTrace {
-    private fun sourceRef(url: String): String {
+    internal fun sourceRef(url: String): String {
         val hash = MessageDigest.getInstance("SHA-256")
             .digest(url.toByteArray(Charsets.UTF_8))
         return hash.take(8).joinToString("") { "%02x".format(it.toInt() and 0xff) }
