@@ -80,6 +80,7 @@ import com.lagradost.cloudstream3.ui.player.RepoLinkGenerator
 import com.lagradost.cloudstream3.ui.player.SubtitleData
 import com.lagradost.cloudstream3.ui.result.EpisodeAdapter.Companion.getPlayerAction
 import com.lagradost.cloudstream3.utils.AppContextUtils.getNameFull
+import com.lagradost.cloudstream3.utils.diagnostics.ProviderTrace
 import com.lagradost.cloudstream3.utils.AppContextUtils.isConnectedToChromecast
 import com.lagradost.cloudstream3.utils.AppContextUtils.setDefaultFocus
 import com.lagradost.cloudstream3.utils.AppContextUtils.sortSubs
@@ -1269,6 +1270,12 @@ class ResultViewModel2 : ViewModel() {
         clearCache: Boolean = false,
         isCasting: Boolean = false
     ): LinkLoadingResult {
+        currentResponse?.let { response ->
+            // An episode's signed data is deliberately not recorded. The selection is
+            // linked to earlier metadata by the provider and canonical content URL.
+            ProviderTrace.episodeSelected(response.apiName, response.url, response.name,
+                result.season, result.episode, result.name, response.isMovie())
+        }
         val tempGenerator = RepoLinkGenerator(listOf(result))
 
         val links: MutableSet<ExtractorLink> = mutableSetOf()

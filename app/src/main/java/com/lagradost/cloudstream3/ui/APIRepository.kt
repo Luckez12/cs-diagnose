@@ -83,16 +83,23 @@ class APIRepository(val api: MainAPI) {
     val hasQuickSearch = api.hasQuickSearch
     val vpnStatus = api.vpnStatus
 
-    private suspend fun <T> traceResult(stage: String, extra: String = "", action: suspend () -> Resource<T>): Resource<T> {
+    private suspend fun <T> traceResult(stage: String, extra: String = "", contentUrl: String? = null,
+                                         action: suspend () -> Resource<T>): Resource<T> {
         ProviderTrace.registerProviderHost(api.name, api.mainUrl)
-        val id = ProviderTrace.begin(stage, api.name, extra)
+        val id = if (stage == "METADATA" && contentUrl != null)
+            ProviderTrace.beginContent(api.name, contentUrl)
+        else ProviderTrace.begin(stage, api.name, extra)
         return try {
             val result = ProviderTrace.inOperation(id) { action() }
             when (result) {
                 is Resource.Success -> {
                     val detail = when (val value = result.value) {
                         is SearchResponseList -> "items=${value.items.size}"
-                        is LoadResponse -> "metadata=loaded"
+                        is LoadResponse -> {
+                            if (stage == "METADATA" && contentUrl != null)
+                                ProviderTrace.metadataDetails(id, api.name, contentUrl, value)
+                            "metadata=loaded"
+                        }
                         is List<*> -> "sections=${value.size} items=${value.filterIsInstance<HomePageResponse>().sumOf { response -> response.items.sumOf { it.list.size } }}"
                         else -> "result=success"
                     }
@@ -113,7 +120,7 @@ class APIRepository(val api: MainAPI) {
     }
 
     suspend fun load(url: String): Resource<LoadResponse> {
-        return traceResult("METADATA") { safeApiCall {
+        return traceResult("METADATA", contentUrl = url) { safeApiCall {
             withTimeout(getTimeout(api.loadTimeoutMs)) {
                 if (isInvalidData(url)) throw ErrorLoadingException()
                 val fixedUrl = api.fixUrl(url)

@@ -3,10 +3,14 @@ package com.lagradost.cloudstream3.utils.diagnostics
 import android.os.Looper
 import android.os.SystemClock
 import com.lagradost.cloudstream3.HomePageResponse
+import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.AnimeLoadResponse
+import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.asContextElement
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
+import java.security.MessageDigest
 import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
@@ -40,6 +44,9 @@ object ProviderTrace {
     private val entries = ArrayDeque<Entry>()
     private val pending = linkedMapOf<Long, Pending>()
     private val operationSessions = linkedMapOf<Long, Long>()
+    // Store a hash, never the provider's content URL or episode payload.
+    private val contentSessions = linkedMapOf<String, Long>()
+    private val contentNames = linkedMapOf<Long, String>()
     private var counter = 0L
     private var dropped = 0L
     private var ignoreThrough = 0L
@@ -85,8 +92,8 @@ object ProviderTrace {
             ?: begin("CLOUDFLARE", host, "challenge=detected status=$code attribution=unlinked")
 
 
-    // Callers supply only structured, non-secret fields. Never log arbitrary exception text,
-    // request bodies, headers, full URLs, title strings or query parameters.
+    // Diagnostic retains provider-supplied content titles (user-requested), but never
+    // raw URLs, request bodies, credentials or arbitrary exception messages.
     private fun clean(value: String, limit: Int = 140): String =
         value.replace(Regex("""[^\p{L}\p{M}\p{N} _.=:+()/-]"""), "_").take(limit)
 
@@ -96,6 +103,61 @@ object ProviderTrace {
             .replace(Regex("""[^\p{L}\p{M}\p{N} _.\-]"""), " ")
             .trim().replace(Regex("\\s+"), "_").take(64).trim('_')
         return safe.ifBlank { "Unnamed" }
+    }
+
+    private fun contentKey(provider: String, url: String): String {
+        val bytes = MessageDigest.getInstance("SHA-256")
+            .digest((provider + "\u0000" + url).toByteArray(Charsets.UTF_8))
+        return bytes.take(12).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    /** A repeated load of one provider URL uses the same session. No URL is logged. */
+    fun beginContent(provider: String, url: String): Long = synchronized(lock) {
+        val key = contentKey(provider, url)
+        val existing = contentSessions[key]
+        val op = begin("METADATA", provider, "content_ref=$key", existing)
+        if (existing == null) contentSessions[key] = operationSessions[op] ?: op
+        while (contentSessions.size > 160) contentSessions.remove(contentSessions.keys.first())
+        op
+    }
+
+    /** Summarise a real LoadResponse, including cached responses; never guess episodes. */
+    fun metadataDetails(op: Long, provider: String, requestedUrl: String, response: LoadResponse) = synchronized(lock) {
+        val session = operationSessions[op] ?: op
+        // A response may use a canonical URL different from the URL used to request it.
+        contentSessions[contentKey(provider, requestedUrl)] = session
+        contentSessions[contentKey(provider, response.url)] = session
+        while (contentSessions.size > 160) contentSessions.remove(contentSessions.keys.first())
+        val title = sectionValue(response.name).replace('_', ' ').take(80)
+        contentNames[session] = title
+        while (contentNames.size > 160) contentNames.remove(contentNames.keys.first())
+        val summary = when (response) {
+            is AnimeLoadResponse -> {
+                val all = response.episodes.values.flatten()
+                val numbered = all.mapNotNull { ep -> ep.episode?.let { number -> (ep.season ?: 0) to number } }.distinct().size
+                "rekod=${all.size} episod_unik=$numbered versi=${response.episodes.size}"
+            }
+            is TvSeriesLoadResponse ->
+                "rekod=${response.episodes.size} musim=${response.episodes.mapNotNull { it.season }.distinct().size}"
+            else -> "rekod=tidak_berkenaan"
+        }
+        // Encode labels as single safe fields; real URLs, signed episode payloads and keys are never written.
+        note(op, "METADATA_DETAIL",
+            "title=${sectionValue(response.name)} type=${response.type.name} year=${response.year ?: "unknown"} $summary")
+    }
+
+    /** Selection is observable in the app even when the extension's internal lookups are not. */
+    fun episodeSelected(provider: String, contentUrl: String, title: String,
+                        season: Int?, episode: Int?, episodeName: String?, isMovie: Boolean) = synchronized(lock) {
+        val key = contentKey(provider, contentUrl)
+        val session = contentSessions[key]
+        val op = begin("EPISODE_SELECTION", provider, "content_ref=$key", session)
+        contentNames[operationSessions[op] ?: op] = sectionValue(title).replace('_', ' ').take(80)
+        note(op, "EPISODE_DETAIL",
+            "title=${sectionValue(title)} " +
+            if (isMovie) "selection=movie" else
+                "season=${season ?: "unknown"} episode=${episode ?: "unknown"} episode_name=${sectionValue(episodeName ?: "")}")
+        finish(op)
     }
 
     private fun stamp(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
@@ -133,7 +195,7 @@ object ProviderTrace {
     fun begin(stage: String, provider: String, details: String = "", sessionOverride: Long? = null): Long = synchronized(lock) {
         PluginLogCollector.start()
         val id = ++counter
-        val session = context.get()?.session ?: sessionOverride ?: id
+        val session = sessionOverride ?: context.get()?.session ?: id
         val safeStage = clean(stage)
         val safeProvider = clean(provider)
         pending[id] = Pending(safeProvider, safeStage, session, SystemClock.elapsedRealtime(), heapMb())
@@ -280,7 +342,8 @@ object ProviderTrace {
     }
 
     fun clear() = synchronized(lock) {
-        entries.clear(); pending.clear(); operationSessions.clear(); recentNetwork.clear(); dropped = 0L
+        entries.clear(); pending.clear(); operationSessions.clear(); recentNetwork.clear()
+        contentSessions.clear(); contentNames.clear(); dropped = 0L
         // Prevent an old in-flight operation from repopulating a freshly cleared report.
         ignoreThrough = counter
     }
@@ -309,11 +372,39 @@ object ProviderTrace {
         else -> "Sedang menjalankan proses provider."
     }
 
-    private fun liveEvent(e: Entry, labels: Map<Long, String>, itemCounts: Map<Long, Int>): String? {
+    private fun liveEvent(e: Entry, labels: Map<Long, String>, itemCounts: Map<Long, Int>, contentNames: Map<Long, String>): String? {
         val stage = e.stage.uppercase(Locale.US)
         val level = e.level
         val label = sectionLabel(e.op, labels)
         if (stage == "STACK" || stage == "HOMEPAGE_RESULT") return null
+        if (stage == "METADATA_DETAIL") {
+            val title = field(e.info, "title")?.replace('_', ' ') ?: "tidak diketahui"
+            val kind = when (field(e.info, "type")) {
+                "Anime" -> "Anime"
+                "TvSeries", "AsianDrama", "Cartoon" -> "Siri"
+                "Movie", "AnimeMovie" -> "Filem"
+                else -> "Kandungan"
+            }
+            val year = field(e.info, "year")?.takeUnless { it == "unknown" }?.let { " ($it)" } ?: ""
+            val entryCount = field(e.info, "rekod") ?: "tidak diketahui"
+            val seasonCount = field(e.info, "musim")
+            val numbered = field(e.info, "episod_unik")
+            val versions = field(e.info, "versi")
+            return "$kind: $title$year. " + when {
+                entryCount == "tidak berkenaan" -> "Tiada senarai episod untuk jenis kandungan ini."
+                numbered != null -> "Provider memulangkan $entryCount rekod episod" +
+                    (if (versions != null) " merangkumi $versions versi" else "") +
+                    "; $numbered nombor episod berbeza dikenal pasti."
+                else -> "Provider memulangkan $entryCount rekod episod" +
+                    (if (seasonCount != null) " daripada $seasonCount musim" else "") + "."
+            }
+        }
+        if (stage == "EPISODE_DETAIL") {
+            val title = field(e.info, "title")?.replace('_', ' ') ?: "kandungan"
+            return if (field(e.info, "selection") == "movie") "Filem dipilih: $title."
+                else "Memilih $title — musim ${field(e.info, "season") ?: "?"}, episod ${field(e.info, "episode") ?: "?"}" +
+                    (field(e.info, "episode_name")?.takeUnless { it == "Unnamed" }?.let { " (${it.replace('_', ' ')})" } ?: "") + "."
+        }
         if (stage == "PLUGIN_LOG") return when (level) {
             "ERROR", "WARN" -> "Plugin melaporkan masalah. Butiran ada dalam Plugin Logs."
             else -> null
@@ -362,7 +453,7 @@ object ProviderTrace {
         if (level == "START") return when (stage) {
             "HOMEPAGE" -> "Mula memuatkan halaman utama ${field(e.info, "provider") ?: "provider"}."
             "HOMEPAGE_SECTION" -> "Mula memuatkan bahagian $label."
-            "METADATA" -> "Mula mendapatkan maklumat kandungan."
+            "METADATA" -> "Mula mendapatkan maklumat ${contentNames[e.session] ?: "kandungan"}."
             "LINKS" -> "Mula mencari pautan video."
             "SEARCH", "QUICK_SEARCH" -> "Mula mencari kandungan."
             else -> null
@@ -374,7 +465,7 @@ object ProviderTrace {
                 if (count == null) "Bahagian $label selesai dimuatkan (jumlah hasil tidak diketahui)."
                 else "Bahagian $label selesai dimuatkan ($count item)."
             }
-            "METADATA" -> "Maklumat kandungan berjaya diperoleh."
+            "METADATA" -> "Maklumat ${contentNames[e.session] ?: "kandungan"} berjaya diperoleh."
             "SEARCH", "QUICK_SEARCH" -> "Carian kandungan selesai."
             "LINKS" -> "Pencarian pautan video selesai."
             "PLAYER", "PLAYBACK", "FIRST_FRAME" -> "Video mula dipaparkan oleh player."
@@ -445,11 +536,12 @@ object ProviderTrace {
             var lastSession: Long? = null
             var shown = 0
             entries.forEach { e ->
-                val description = liveEvent(e, labels, items) ?: return@forEach
+                val description = liveEvent(e, labels, items, contentNames) ?: return@forEach
                 if (lastSession != e.session) {
                     if (shown > 0) appendLine()
                     val provider = providers[e.session]
-                    appendLine("— ${if (provider == null) "Sesi #${e.session}" else "$provider · Sesi #${e.session}"} —")
+                    val content = contentNames[e.session]?.let { " · $it" } ?: ""
+                    appendLine("— ${if (provider == null) "Sesi #${e.session}" else "$provider$content · Sesi #${e.session}"} —")
                     lastSession = e.session
                 }
                 appendLine("${e.at}  $description")
