@@ -190,13 +190,16 @@ class APIRepository(val api: MainAPI) {
     }
 
     suspend fun getMainPage(page: Int, nameIndex: Int? = null): Resource<List<HomePageResponse?>> {
-        return traceResult("HOMEPAGE", "page=$page section=${nameIndex ?: "all"}") { safeApiCall {
+        val requestedSection = nameIndex?.let { index ->
+            api.mainPage.getOrNull(index)?.let { ProviderTrace.sectionValue(it.name) }
+        } ?: "all"
+        return traceResult("HOMEPAGE", "page=$page section=$requestedSection") { safeApiCall {
             withTimeout(getTimeout(api.getMainPageTimeoutMs)) {
                 api.lastHomepageRequest = unixTimeMS
 
                 nameIndex?.let { api.mainPage.getOrNull(it) }?.let { data ->
                     listOf(
-                        ProviderTrace.observe("HOMEPAGE_SECTION", api.name, "page=$page index=${api.mainPage.indexOf(data)}") {
+                        ProviderTrace.observe("HOMEPAGE_SECTION", api.name, "page=$page index=$nameIndex section=${ProviderTrace.sectionValue(data.name)}") {
                             api.getMainPage(
                                 page,
                                 MainPageRequest(data.name, data.data, data.horizontalImages)
@@ -206,14 +209,14 @@ class APIRepository(val api: MainAPI) {
                 } ?: run {
                     if (api.sequentialMainPage) {
                         var first = true
-                        api.mainPage.map { data ->
+                        api.mainPage.mapIndexed { index, data ->
                             if (!first) { // dont want to sleep on first request
                                 ProviderTrace.noteCurrent("HOMEPAGE_QUEUE", "waitMs=${api.sequentialMainPageDelay}")
                                 delay(api.sequentialMainPageDelay)
                             }
                             first = false
 
-                            ProviderTrace.observe("HOMEPAGE_SECTION", api.name, "page=$page index=${api.mainPage.indexOf(data)}") {
+                            ProviderTrace.observe("HOMEPAGE_SECTION", api.name, "page=$page index=$index section=${ProviderTrace.sectionValue(data.name)}") {
                                 api.getMainPage(
                                     page,
                                     MainPageRequest(data.name, data.data, data.horizontalImages)
@@ -222,9 +225,9 @@ class APIRepository(val api: MainAPI) {
                         }
                     } else {
                         with(CoroutineScope(coroutineContext)) {
-                            api.mainPage.map { data ->
+                            api.mainPage.mapIndexed { index, data ->
                                 async {
-                                    ProviderTrace.observe("HOMEPAGE_SECTION", api.name, "page=$page index=${api.mainPage.indexOf(data)}") {
+                                    ProviderTrace.observe("HOMEPAGE_SECTION", api.name, "page=$page index=$index section=${ProviderTrace.sectionValue(data.name)}") {
                                         api.getMainPage(
                                             page,
                                             MainPageRequest(data.name, data.data, data.horizontalImages)

@@ -88,7 +88,15 @@ object ProviderTrace {
     // Callers supply only structured, non-secret fields. Never log arbitrary exception text,
     // request bodies, headers, full URLs, title strings or query parameters.
     private fun clean(value: String, limit: Int = 140): String =
-        value.replace(Regex("[^a-zA-Z0-9 _.=:+()/-]"), "_").take(limit)
+        value.replace(Regex("""[^\p{L}\p{M}\p{N} _.=:+()/-]"""), "_").take(limit)
+
+    /** Human-readable homepage section label, not the section URL/data or a content title. */
+    fun sectionValue(name: String): String {
+        val safe = ProviderSafeText.message(name)
+            .replace(Regex("""[^\p{L}\p{M}\p{N} _.\-]"""), " ")
+            .trim().replace(Regex("\\s+"), "_").take(64).trim('_')
+        return safe.ifBlank { "Unnamed" }
+    }
 
     private fun stamp(): String = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
     private fun heapMb(): Long = (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1048576L
@@ -255,8 +263,10 @@ object ProviderTrace {
             val result = inOperation(op) { action() }
             if (stage == "HOMEPAGE_SECTION") {
                 if (result is HomePageResponse) {
+                    val returnedNames = result.items.take(5)
+                        .joinToString("+") { sectionValue(it.name) }
                     note(op, "HOMEPAGE_RESULT",
-                        "groups=${result.items.size} items=${result.items.sumOf { it.list.size }}")
+                        "groups=${result.items.size} items=${result.items.sumOf { it.list.size }} names=$returnedNames")
                 } else if (result == null) {
                     note(op, "HOMEPAGE_RESULT", "empty=true")
                 }
@@ -277,27 +287,33 @@ object ProviderTrace {
 
     // Live Status deliberately uses observed facts rather than guessing what a plugin is
     // doing. Extractor-internal parsing / poster loading cannot be inferred from silence.
+    // A section starts with a provider-declared MainPageData.name; retain its label
+    // per operation ID so concurrent sections never borrow another section's name.
     private fun field(info: String, key: String): String? =
         Regex("(?:^|\\s)" + Regex.escape(key) + "=([^ ]+)")
             .find(info)?.groupValues?.getOrNull(1)
 
-    private fun liveAction(stage: String, provider: String): String = when (stage) {
-        "HOMEPAGE" -> "Sedang memuatkan halaman utama ${provider}."
-        "HOMEPAGE_SECTION" -> "Sedang memuatkan bahagian halaman utama."
-        "SEARCH", "QUICK_SEARCH" -> "Sedang mencari kandungan dalam ${provider}."
+    private fun sectionLabel(op: Long, labels: Map<Long, String>): String =
+        labels[op]?.replace('_', ' ') ?: "bahagian tidak dikenal pasti"
+
+    private fun liveAction(stage: String, provider: String, label: String? = null): String = when (stage) {
+        "HOMEPAGE" -> "Sedang memuatkan halaman utama $provider."
+        "HOMEPAGE_SECTION" -> "Sedang memuatkan bahagian ${label ?: "tidak dikenal pasti"}."
+        "SEARCH", "QUICK_SEARCH" -> "Sedang mencari kandungan dalam $provider."
         "METADATA" -> "Sedang mendapatkan maklumat kandungan."
         "LINKS" -> "Sedang mencari pautan video."
         "EXTRACTOR" -> "Sedang mendapatkan pautan daripada extractor."
-        "HTTP" -> "Sedang menunggu respons laman ${provider}."
-        "CLOUDFLARE" -> "Sedang menjalankan pemeriksaan keselamatan laman."
+        "HTTP" -> "Sedang menunggu respons laman $provider."
+        "CLOUDFLARE" -> "Sedang menunggu pemeriksaan keselamatan laman."
         "PLAYER", "PLAYBACK" -> "Sedang menyediakan video untuk dimainkan."
         else -> "Sedang menjalankan proses provider."
     }
 
-    private fun liveEvent(e: Entry): String? {
+    private fun liveEvent(e: Entry, labels: Map<Long, String>, itemCounts: Map<Long, Int>): String? {
         val stage = e.stage.uppercase(Locale.US)
         val level = e.level
-        if (stage == "STACK") return null // Technical stack traces stay in Full trace.
+        val label = sectionLabel(e.op, labels)
+        if (stage == "STACK" || stage == "HOMEPAGE_RESULT") return null
         if (stage == "PLUGIN_LOG") return when (level) {
             "ERROR", "WARN" -> "Plugin melaporkan masalah. Butiran ada dalam Plugin Logs."
             else -> null
@@ -324,24 +340,28 @@ object ProviderTrace {
                     "Laman memberi respons $code; permintaan ini mungkin dicuba semula."
                 level == "WARN" -> "Sambungan laman mengalami masalah; semak HTTP / Network."
                 level == "FAIL" -> "Permintaan ke laman gagal; semak HTTP / Network."
-                else -> null // Avoid flooding Live Status with successful parallel requests.
+                else -> null
             }
         }
         if (level == "SLOW") return when (stage) {
-            "HOMEPAGE", "HOMEPAGE_SECTION" -> "Halaman utama mengambil masa lebih lama daripada biasa."
+            "HOMEPAGE_SECTION" -> "Bahagian $label mengambil masa lebih lama (${field(e.info, "elapsed") ?: "?"}ms)."
+            "HOMEPAGE" -> "Halaman utama mengambil masa lebih lama daripada biasa."
             "LINKS" -> "Pencarian pautan video mengambil masa lebih lama daripada biasa."
             else -> "Proses ${stage.lowercase(Locale.US)} mengambil masa lebih lama daripada biasa."
         }
         if (level == "FAIL") return when (stage) {
-            "HOMEPAGE", "HOMEPAGE_SECTION" -> "Halaman utama gagal dimuatkan."
+            "HOMEPAGE_SECTION" -> "Bahagian $label gagal dimuatkan."
+            "HOMEPAGE" -> "Halaman utama gagal dimuatkan."
             "LINKS" -> "Pencarian pautan video gagal. Semak Links / Extractor dan HTTP / Network."
             "SEARCH", "QUICK_SEARCH" -> "Carian kandungan gagal."
             "METADATA" -> "Maklumat kandungan gagal dimuatkan."
             else -> "Proses provider gagal. Semak Full trace untuk butiran."
         }
+        if (level == "CANCEL" && stage == "HOMEPAGE_SECTION")
+            return "Memuatkan bahagian $label dibatalkan."
         if (level == "START") return when (stage) {
             "HOMEPAGE" -> "Mula memuatkan halaman utama ${field(e.info, "provider") ?: "provider"}."
-            "HOMEPAGE_SECTION" -> "Mula memuatkan satu bahagian halaman utama."
+            "HOMEPAGE_SECTION" -> "Mula memuatkan bahagian $label."
             "METADATA" -> "Mula mendapatkan maklumat kandungan."
             "LINKS" -> "Mula mencari pautan video."
             "SEARCH", "QUICK_SEARCH" -> "Mula mencari kandungan."
@@ -349,7 +369,11 @@ object ProviderTrace {
         }
         if (level == "PASS") return when (stage) {
             "HOMEPAGE" -> "Halaman utama selesai dimuatkan."
-            "HOMEPAGE_SECTION" -> "Satu bahagian halaman utama berjaya dimuatkan."
+            "HOMEPAGE_SECTION" -> {
+                val count = itemCounts[e.op]
+                if (count == null) "Bahagian $label selesai dimuatkan (jumlah hasil tidak diketahui)."
+                else "Bahagian $label selesai dimuatkan ($count item)."
+            }
             "METADATA" -> "Maklumat kandungan berjaya diperoleh."
             "SEARCH", "QUICK_SEARCH" -> "Carian kandungan selesai."
             "LINKS" -> "Pencarian pautan video selesai."
@@ -360,11 +384,28 @@ object ProviderTrace {
     }
 
     private fun liveStatus(now: Long): String {
-        // Live Status is an APPEND-ONLY HUMAN-READABLE VIEW over the retained trace.
-        // Do not replace completed sessions with the latest session, or trim to 8/12
-        // messages. Events remain visible until Clear or the bounded event history
-        // reaches MAX_ENTRIES (oldest-first eviction to protect app memory).
+        // Historical entries stay append-only. In-flight sections are listed separately,
+        // never merged or guessed from a shared HTTP request/Cloudflare challenge.
         val running = pending.entries.filter { it.key > ignoreThrough }
+        val labels = mutableMapOf<Long, String>()
+        val items = mutableMapOf<Long, Int>()
+        val providers = mutableMapOf<Long, String>()
+        entries.forEach { e ->
+            if (e.stage == "HOMEPAGE_SECTION" && e.level == "START") {
+                val name = field(e.info, "section")
+                val index = field(e.info, "index")
+                if (!name.isNullOrBlank() && name != "Unnamed") labels[e.op] = name
+                else labels[e.op] = "Bahagian_${index ?: "?"}"
+            }
+            if (e.stage == "HOMEPAGE_RESULT")
+                field(e.info, "items")?.toIntOrNull()?.let { items[e.op] = it }
+            if (e.stage in providerStages)
+                field(e.info, "provider")?.takeIf { it.isNotBlank() }?.let { providers[e.session] = it }
+        }
+        running.forEach { (_, task) ->
+            if (task.stage in providerStages) providers[task.session] = task.provider
+        }
+        val sectionsRunning = running.filter { it.value.stage == "HOMEPAGE_SECTION" }
         val latest = running.maxWithOrNull(compareBy<Map.Entry<Long, Pending>> {
             when (it.value.stage) {
                 "CLOUDFLARE" -> 6; "HTTP" -> 5; "EXTRACTOR", "LINKS" -> 4
@@ -372,27 +413,28 @@ object ProviderTrace {
             }
         }.thenBy { it.key })
 
-        // Build session labels from observed provider events, never from a network
-        // hostname that may belong to an unrelated request.
-        val labels = mutableMapOf<Long, String>()
-        entries.forEach { e ->
-            if (e.stage in providerStages) {
-                field(e.info, "provider")?.takeIf { it.isNotBlank() }?.let {
-                    labels[e.session] = it
-                }
-            }
-        }
-        running.forEach { (_, task) ->
-            if (task.stage in providerStages) labels[task.session] = task.provider
-        }
-
         return buildString {
             appendLine("LIVE STATUS")
             appendLine()
-            if (latest != null) {
+            if (sectionsRunning.isNotEmpty()) {
+                appendLine("SEKARANG: ${sectionsRunning.size} bahagian halaman utama sedang dimuatkan:")
+                sectionsRunning.take(12).forEach { (id, task) ->
+                    val seconds = (now - task.since).coerceAtLeast(0L) / 1000L
+                    appendLine("• ${sectionLabel(id, labels)} — menunggu ${seconds}s.")
+                }
+                if (sectionsRunning.size > 12) appendLine("• ${sectionsRunning.size - 12} bahagian lain sedang dimuatkan.")
+                val networkCount = running.count { it.value.stage == "HTTP" }
+                if (networkCount > 0)
+                    appendLine("Sedang menunggu $networkCount respons laman (belum dapat dipadankan dengan bahagian tertentu).")
+                val challenge = running.firstOrNull { it.value.stage == "CLOUDFLARE" }
+                if (challenge != null)
+                    appendLine("Pemeriksaan keselamatan laman sedang berjalan (belum dapat dipadankan dengan bahagian tertentu).")
+                // Requests on a shared client might run for several sections. Do not
+                // assign any single HTTP request to a section without verified context.
+            } else if (latest != null) {
                 val task = latest.value
                 val seconds = (now - task.since).coerceAtLeast(0L) / 1000L
-                appendLine("SEKARANG: ${liveAction(task.stage, task.provider)}")
+                appendLine("SEKARANG: ${liveAction(task.stage, task.provider, labels[latest.key]?.replace('_', ' '))}")
                 appendLine("Menunggu ${seconds}s.")
             } else {
                 appendLine("SEKARANG: Tiada proses aktif yang dapat dikesan.")
@@ -403,11 +445,11 @@ object ProviderTrace {
             var lastSession: Long? = null
             var shown = 0
             entries.forEach { e ->
-                val description = liveEvent(e) ?: return@forEach
+                val description = liveEvent(e, labels, items) ?: return@forEach
                 if (lastSession != e.session) {
                     if (shown > 0) appendLine()
-                    val label = labels[e.session]
-                    appendLine("— ${if (label == null) "Sesi #${e.session}" else "$label · Sesi #${e.session}"} —")
+                    val provider = providers[e.session]
+                    appendLine("— ${if (provider == null) "Sesi #${e.session}" else "$provider · Sesi #${e.session}"} —")
                     lastSession = e.session
                 }
                 appendLine("${e.at}  $description")
