@@ -1,0 +1,11 @@
+# CS Diagnose — Working Rules
+
+1. Answer the user in concise, friendly Malay. Give the result and only the important caveats. Ask before changing the scope or an established UI decision.
+2. The user uploads a source or patch ZIP to the root of their `cs-diagnose` GitHub repository. `auto-unzip.yml` extracts ZIPs at their *embedded relative paths*, deletes each archive only after successful extraction, and commits extracted files. `build-after-unzip.yml` builds on successful unzip or manual Run workflow. Both `.yml` files are delivered **separately**, outside a source patch ZIP, only when workflow changes are needed.
+3. Preserve the original official CloudStream Settings and Logcat UI. Diagnose appears separately in Settings below Extensions. The user explicitly does not want re-styled Settings, Logcat or incidental UI changes. Only edit unrelated code when necessary for the requested diagnosis capability and explain it.
+4. Keep the app as its own installable debug package, phone ARM64 only, stable variant as established by the user's repository. Do not silently change build flavor, ABI or package ID.
+5. **Do not build APK locally**. Source-level checks, static inspection, a small pure Kotlin test and ZIP validation are allowed; disclose that they are not an Android compilation or device test.
+6. Patch ZIPs should contain **only files that must be changed** with accurate repository-root paths, plus the three context/hand-over documents. Do not include workflow YAML in the ZIP. Do not claim a patch deletes old files unless the workflow includes explicit deletion.
+7. Before patching, inspect the latest available source/previous patch and the exact call sites. Never claim something was compiled, checked on a phone or confirmed on GitHub if it was not.
+8. Distinguish captured observations from conclusions: HTTP 403 alone does not prove Cloudflare; HTTP 200 alone does not guarantee playable video; poster URL selected is not proof the image loaded; Log.w in a provider is not necessarily a final failure.
+9. On every new patch, update `PROJECT_CONTEXT.md`, `WORKFLOW_RULES.md` and `AI_HANDOVER.md`, recording exactly what changed and what remains unverified. Do not silently merge this project with VUEO, Nuvio or another repo mentioned in examples.

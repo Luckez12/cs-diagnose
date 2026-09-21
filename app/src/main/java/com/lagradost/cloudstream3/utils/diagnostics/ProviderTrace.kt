@@ -569,11 +569,45 @@ object ProviderTrace {
         }.trimEnd()
     }
 
+    /** Plugin logs are already sanitized at collection time; format without re-reading Logcat. */
+    private fun pluginMessage(info: String): String =
+        info.substringAfter(" attribution=", info).substringAfter(' ', info)
+
+    private fun isLinkDiscovery(e: Entry): Boolean = e.stage == "PLUGIN_LOG" &&
+        (e.info.contains(Regex("""(?i)\b(?:DISCOVERY|EXTRACTOR|LOADLINKS|LINKS|STREAM|_DONE)\b""")) ||
+            e.info.contains(Regex("""(?i)_(?:DISCOVERY|DONE)(?:\s|$)""")))
+
+    private fun pluginFinalNoLinks(e: Entry): Boolean {
+        if (e.stage != "PLUGIN_LOG") return false
+        val msg = pluginMessage(e.info)
+        // Explicit plugin result only. WARN by itself is not proof of failure.
+        return msg.contains(Regex("""(?i)\bsuccess=false\b""")) ||
+            msg.contains(Regex("""(?i)\bemitted=0\b""")) ||
+            msg.contains(Regex("""(?i)\blinks=0\b""")) ||
+            (msg.contains("_DONE") && msg.contains(Regex("""(?i)\bcandidates=0\b""")))
+    }
+
+    private fun displayEvent(e: Entry): String = if (e.stage == "PLUGIN_LOG") {
+        val tag = field(e.info, "tag") ?: "Plugin"
+        val attribution = field(e.info, "attribution")
+        val source = when (attribution) {
+            "single_active_request" -> "permintaan aktif"
+            "provider_session_only" -> "sesi provider; langkah khusus tidak disahkan"
+            "tag_only_unlinked" -> "tidak dipadankan dengan sesi"
+            else -> "sesi tidak disahkan"
+        }
+        "${e.at}  [$tag] ${e.level}  sesi=${e.session} #${e.op}\n" +
+            "  ${pluginMessage(e.info)}\n  Sumber: $source"
+    } else "${e.at} session=${e.session} #${e.op} ${e.level} ${e.stage} ${e.info}"
+
     /** Existing UI consumes these strings; only the spinner categories and report change. */
     fun report(section: String, importantOnly: Boolean): String = synchronized(lock) {
         val now = SystemClock.elapsedRealtime()
         if (section == "Live Status") return@synchronized liveStatus(now)
-        val selected = entries.filter { section == "Full timeline" || it.section == section }
+        val selected = entries.filter {
+            section == "Full timeline" || it.section == section ||
+                (section == "Links / Extractor" && isLinkDiscovery(it))
+        }
         val active = pending.filterValues {
             section == "Full timeline" || sectionOf(it.stage) == section
         }
@@ -592,15 +626,27 @@ object ProviderTrace {
             if (importantOnly) {
                 val significant = selected.filter {
                     it.level == "FAIL" || it.level == "SLOW" ||
-                        (it.stage == "PLUGIN_LOG" && it.level == "ERROR")
+                        (it.stage == "PLUGIN_LOG" && (it.level == "ERROR" || pluginFinalNoLinks(it)))
+                }
+                if (section == "Plugin Logs") {
+                    // A poster URL being selected is not evidence that its image loaded.
+                    val posterSelections = selected.count {
+                        it.stage == "PLUGIN_LOG" && pluginMessage(it.info).contains(Regex("""(?i)_POSTER\b"""))
+                    }
+                    if (posterSelections > 0) {
+                        appendLine()
+                        appendLine("Poster: $posterSelections log pemilihan URL gambar; status muat turun gambar tidak disahkan.")
+                        appendLine("URL poster tersedia dalam Full trace (disensor).")
+                    }
                 }
                 appendLine()
-                appendLine("FAILURES / SLOW STAGES")
-                if (significant.isEmpty()) appendLine("No failed or slow stages recorded in this section.")
+                appendLine("KEGAGALAN / PROSES PERLAHAN")
+                if (significant.isEmpty()) appendLine("Tiada kegagalan akhir atau proses perlahan direkodkan di sini.")
                 significant.takeLast(80).forEach { e ->
-                    appendLine("${e.at} session=${e.session} #${e.op} ${e.level} ${e.stage} ${e.info}")
+                    appendLine(displayEvent(e))
+                    appendLine()
                 }
-                if (selected.any { it.level == "WARN" })
+                if (selected.any { it.level == "WARN" && it.stage == "HTTP" })
                     appendLine("HTTP warnings may have recovered; check Full trace for retries.")
             } else {
                 appendLine()
@@ -608,7 +654,7 @@ object ProviderTrace {
                 if (selected.isEmpty()) appendLine("No events recorded.")
                 selected.forEachIndexed { index, e ->
                     if (index > 0 && e.stage != "STACK") appendLine()
-                    appendLine("${e.at} session=${e.session} #${e.op} ${e.level} ${e.stage} ${e.info}")
+                    appendLine(displayEvent(e))
                 }
             }
         }

@@ -35,48 +35,9 @@ import com.lagradost.cloudstream3.R
 object DiagnosticDialog {
     private const val PAGE_TAG = "cloudstream-provider-diagnostic-page"
 
-    /** Search only the already-sanitized report. A matching Live Status session
-     * heading retains its process history, not just the line with the provider name. */
-    internal fun filterReport(report: String, query: String): String {
-        val term = query.trim()
-        if (term.isEmpty()) return report
-        val lines = report.lines()
-        val output = mutableListOf<String>()
-        val sessionHeading = Regex("^[–—-]\\s+.+[•].*Sesi\\s*#")
-        var currentHeading: String? = null
-        var group = mutableListOf<String>()
-        fun flush() {
-            val header = currentHeading
-            if (header != null && header.contains(term, ignoreCase = true)) {
-                output.add(header)
-                output.addAll(group)
-            } else {
-                val hits = group.filter { it.contains(term, ignoreCase = true) }
-                if (hits.isNotEmpty()) {
-                    if (header != null) output.add(header)
-                    output.addAll(hits)
-                }
-            }
-            group = mutableListOf()
-        }
-        lines.forEach { line ->
-            if (sessionHeading.containsMatchIn(line)) {
-                flush()
-                currentHeading = line
-            } else {
-                group.add(line)
-            }
-        }
-        flush()
-        val nonBlank = output.filter { it.isNotBlank() }
-        return buildString {
-            appendLine("SEARCH: $term")
-            appendLine("Matching lines: ${nonBlank.size}")
-            appendLine()
-            if (nonBlank.isEmpty()) append("No matching diagnostic events.")
-            else append(nonBlank.joinToString("\n"))
-        }
-    }
+    /** Search matches complete multi-line events, not isolated wrapped lines. */
+    internal fun filterReport(report: String, query: String): String =
+        DiagnosticSearch.filter(report, query)
 
     private fun dp(context: Context, value: Int): Int =
         (value * context.resources.displayMetrics.density + 0.5f).toInt()
