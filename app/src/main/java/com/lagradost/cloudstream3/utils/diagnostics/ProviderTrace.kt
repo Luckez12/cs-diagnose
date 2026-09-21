@@ -215,22 +215,40 @@ object ProviderTrace {
         return withContext(context.asContextElement(ctx)) { action() }
     }
 
-    /**
-     * Match plugin Log.d/i/w/e by tag to an active provider operation. Unmatched messages
-     * never get silently attributed to a provider, even if they run in our app process.
-     */
+    /** Android Log.d/i/w/e from this process; tag must match a registered provider.
+     * A message without an active operation is shown as unlinked, never assigned to
+     * some unrelated or already-completed request. */
     internal fun pluginLog(priority: Char, tag: String, message: String) = synchronized(lock) {
-        val eligible = pending.entries.filter { (_, task) ->
-            task.stage in setOf("HOMEPAGE", "HOMEPAGE_SECTION", "SEARCH", "QUICK_SEARCH", "METADATA", "LINKS") &&
-                task.session > ignoreThrough &&
-                task.provider.isNotBlank() &&
-                (tag.equals(task.provider, ignoreCase = true) ||
-                 tag.startsWith(task.provider.substringBefore(" _ ").substringBefore(" "), ignoreCase = true) ||
-                 message.startsWith("[${task.provider}]", ignoreCase = true))
+        fun matches(provider: String): Boolean {
+            val short = provider.substringBefore(" _ ").substringBefore(' ')
+            return tag.equals(provider, ignoreCase = true) ||
+                tag.equals(short, ignoreCase = true) ||
+                tag.startsWith("${short}Provider", ignoreCase = true) ||
+                message.startsWith("[$provider]", ignoreCase = true)
         }
-        val chosen = eligible.maxByOrNull { it.key } ?: return@synchronized
+        // Never collect arbitrary Android/system log tags, even if they share the app PID.
+        val registered = providerHosts.keys.filter(::matches)
+        if (registered.isEmpty()) return@synchronized
+        val active = pending.entries.filter { (_, task) ->
+            task.stage in providerStages && task.provider in registered && task.session > ignoreThrough
+        }
+        val sessions = active.map { it.value.session }.distinct()
+        // Android logcat has no coroutine context: if several homepage sections
+        // are active, link to their common session but NOT to an arbitrary section.
+        val chosen = active.singleOrNull()
+        val oneSession = sessions.singleOrNull()
+        val eventOp = chosen?.key ?: (++counter).also {
+            operationSessions[it] = oneSession ?: 0L
+        }
         val level = when (priority) { 'E', 'F' -> "ERROR"; 'W' -> "WARN"; else -> "INFO" }
-        record(chosen.key, level, "PLUGIN_LOG", "tag=${clean(tag)} ${ProviderSafeText.message(message)}")
+        val attribution = when {
+            chosen != null -> "single_active_request"
+            oneSession != null -> "provider_session_only"
+            else -> "tag_only_unlinked"
+        }
+        // ProviderSafeText runs in record(): no raw plugin text enters the report.
+        record(eventOp, level, "PLUGIN_LOG",
+            "tag=${clean(tag)} attribution=$attribution ${ProviderSafeText.message(message)}")
     }
 
     /** App hook from the shared extractor function; direct/custom extractors may bypass it. */

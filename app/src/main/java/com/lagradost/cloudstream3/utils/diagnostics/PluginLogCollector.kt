@@ -7,7 +7,8 @@ import java.io.InputStreamReader
 /**
  * A best-effort bridge for Android Log.d/i/w/e messages written by installed plugins.
  * This is NOT a replacement for CloudStream's Logcat screen: it reads only our app PID,
- * and only messages tagged with the currently active provider (or prefixed [Provider]).
+ * and only messages whose tags match a registered provider. Unlinked messages
+ * remain explicitly unlinked instead of being attributed to a random session.
  * Android devices may restrict logcat access; we do not request privileged permissions.
  */
 internal object PluginLogCollector {
@@ -33,11 +34,17 @@ internal object PluginLogCollector {
                 BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
                     while (true) {
                         val line = reader.readLine() ?: break
+                        if (line.contains("Permission denied", true) ||
+                            line.contains("not permitted", true)) {
+                            state = "unavailable (Android denied Logcat access; use original Logcat)"
+                            break
+                        }
                         val match = pattern.matchEntire(line) ?: continue
                         ProviderTrace.pluginLog(match.groupValues[1][0], match.groupValues[2].trim(), match.groupValues[3])
                     }
                 }
-                state = "stopped (logcat ended; plugin logs may be unavailable)"
+                if (state.startsWith("listening"))
+                    state = "stopped (logcat ended; plugin logs may be unavailable)"
             } catch (_: Exception) {
                 state = "unavailable (use original Logcat for plugin messages)"
             } finally {

@@ -13,7 +13,11 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.text.Editable
+import android.text.TextWatcher
+import android.text.InputType
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
@@ -30,6 +34,49 @@ import com.lagradost.cloudstream3.R
  */
 object DiagnosticDialog {
     private const val PAGE_TAG = "cloudstream-provider-diagnostic-page"
+
+    /** Search only the already-sanitized report. A matching Live Status session
+     * heading retains its process history, not just the line with the provider name. */
+    internal fun filterReport(report: String, query: String): String {
+        val term = query.trim()
+        if (term.isEmpty()) return report
+        val lines = report.lines()
+        val output = mutableListOf<String>()
+        val sessionHeading = Regex("^[–—-]\\s+.+[•].*Sesi\\s*#")
+        var currentHeading: String? = null
+        var group = mutableListOf<String>()
+        fun flush() {
+            val header = currentHeading
+            if (header != null && header.contains(term, ignoreCase = true)) {
+                output.add(header)
+                output.addAll(group)
+            } else {
+                val hits = group.filter { it.contains(term, ignoreCase = true) }
+                if (hits.isNotEmpty()) {
+                    if (header != null) output.add(header)
+                    output.addAll(hits)
+                }
+            }
+            group = mutableListOf()
+        }
+        lines.forEach { line ->
+            if (sessionHeading.containsMatchIn(line)) {
+                flush()
+                currentHeading = line
+            } else {
+                group.add(line)
+            }
+        }
+        flush()
+        val nonBlank = output.filter { it.isNotBlank() }
+        return buildString {
+            appendLine("SEARCH: $term")
+            appendLine("Matching lines: ${nonBlank.size}")
+            appendLine()
+            if (nonBlank.isEmpty()) append("No matching diagnostic events.")
+            else append(nonBlank.joinToString("\n"))
+        }
+    }
 
     private fun dp(context: Context, value: Int): Int =
         (value * context.resources.displayMetrics.density + 0.5f).toInt()
@@ -106,6 +153,29 @@ object DiagnosticDialog {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 48)
             ))
 
+            // Search is local to Diagnose. Raw Android Logcat and its UI are untouched.
+            val searchRow = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val search = EditText(activity).apply {
+                hint = "Search diagnostic..."
+                contentDescription = "Search diagnostic logs"
+                isSingleLine = true
+                inputType = InputType.TYPE_CLASS_TEXT
+                textSize = 15f
+                setPadding(dp(activity, 8), 0, dp(activity, 8), 0)
+            }
+            searchRow.addView(search, LinearLayout.LayoutParams(0, dp(activity, 44), 1f))
+            val clearSearch = Button(activity).apply {
+                text = "×"
+                contentDescription = "Clear diagnostic search"
+                isAllCaps = false
+                textSize = 18f
+            }
+            searchRow.addView(clearSearch, LinearLayout.LayoutParams(dp(activity, 48), dp(activity, 44)))
+            page.addView(searchRow)
+
             val body = TextView(activity).apply {
                 textSize = 13f
                 typeface = Typeface.MONOSPACE
@@ -138,6 +208,10 @@ object DiagnosticDialog {
 
             val handler = Handler(Looper.getMainLooper())
             var lastContent = ""
+            fun visibleReport(): String = filterReport(
+                ProviderTrace.report(ProviderTrace.sections[selected], !full),
+                search.text?.toString().orEmpty()
+            )
             fun refresh() {
                 if (page.parent == null) return
                 // Both the visual selection and report use the SAME mode snapshot.
@@ -147,7 +221,7 @@ object DiagnosticDialog {
                 trace.alpha = if (full) 1f else 0.72f
                 important.setTypeface(null, if (full) Typeface.NORMAL else Typeface.BOLD)
                 trace.setTypeface(null, if (full) Typeface.BOLD else Typeface.NORMAL)
-                val content = ProviderTrace.report(ProviderTrace.sections[selected], !full)
+                val content = visibleReport()
                 if (lastContent != content) {
                     val previousScroll = scroll.scrollY
                     body.text = content
@@ -191,7 +265,17 @@ object DiagnosticDialog {
                 }
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
             }
-            copyButton.setOnClickListener { copy(activity, ProviderTrace.report(ProviderTrace.sections[selected], !full)) }
+            // Copy what the user actually sees after Search / category / mode filtering.
+            copyButton.setOnClickListener { copy(activity, visibleReport()) }
+            clearSearch.setOnClickListener { search.text?.clear() }
+            search.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    scroll.scrollTo(0, 0)
+                    refresh()
+                }
+                override fun afterTextChanged(s: Editable?) = Unit
+            })
             clearButton.setOnClickListener {
                 ProviderTrace.clear()
                 scroll.scrollTo(0, 0)
