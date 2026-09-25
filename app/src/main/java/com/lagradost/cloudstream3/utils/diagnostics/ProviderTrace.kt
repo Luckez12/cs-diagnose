@@ -1,5 +1,6 @@
 package com.lagradost.cloudstream3.utils.diagnostics
 
+import android.content.Context
 import android.os.Looper
 import android.os.SystemClock
 import com.lagradost.cloudstream3.HomePageResponse
@@ -17,6 +18,9 @@ import java.util.Locale
 
 /** In-app provider trace. Does not read, write, or change CloudStream's Logcat UI. */
 object ProviderTrace {
+    private fun s(ctx: Context, key: String, vararg args: Any): String =
+        DiagnosticText.get(ctx, key, *args)
+
     private const val MAX_ENTRIES = 2500
     private const val MAX_OPERATIONS = 3200
     private const val SLOW_MS = 5000L
@@ -379,137 +383,129 @@ object ProviderTrace {
         Regex("(?:^|\\s)" + Regex.escape(key) + "=([^ ]+)")
             .find(info)?.groupValues?.getOrNull(1)
 
-    private fun sectionLabel(op: Long, labels: Map<Long, String>): String =
-        labels[op]?.replace('_', ' ') ?: "bahagian tidak dikenal pasti"
+    private fun sectionLabel(ctx: Context, op: Long, labels: Map<Long, String>): String =
+        labels[op]?.replace('_', ' ') ?: s(ctx, "unknown_section")
 
-    private fun liveAction(stage: String, provider: String, label: String? = null): String = when (stage) {
-        "HOMEPAGE" -> "Sedang memuatkan halaman utama $provider."
-        "HOMEPAGE_SECTION" -> "Sedang memuatkan bahagian ${label ?: "tidak dikenal pasti"}."
-        "SEARCH", "QUICK_SEARCH" -> "Sedang mencari kandungan dalam $provider."
-        "METADATA" -> "Sedang mendapatkan maklumat kandungan."
-        "LINKS" -> "Sedang mencari pautan video."
-        "EXTRACTOR" -> "Sedang mendapatkan pautan daripada extractor."
-        "HTTP" -> "Sedang menunggu respons laman $provider."
-        "CLOUDFLARE" -> "Sedang menunggu pemeriksaan keselamatan laman."
-        "PLAYER", "PLAYBACK" -> "Sedang menyediakan video untuk dimainkan."
-        else -> "Sedang menjalankan proses provider."
+    private fun liveAction(ctx: Context, stage: String, provider: String, label: String? = null): String = when (stage) {
+        "HOMEPAGE" -> s(ctx, "loading_home", provider)
+        "HOMEPAGE_SECTION" -> s(ctx, "loading_section", label ?: s(ctx, "unknown"))
+        "SEARCH", "QUICK_SEARCH" -> s(ctx, "searching_provider", provider)
+        "METADATA" -> s(ctx, "loading_details")
+        "LINKS" -> s(ctx, "searching_links")
+        "EXTRACTOR" -> s(ctx, "resolving_extractor")
+        "HTTP" -> s(ctx, "waiting_site", provider)
+        "CLOUDFLARE" -> s(ctx, "waiting_security")
+        "PLAYER", "PLAYBACK" -> s(ctx, "preparing_video")
+        else -> s(ctx, "running_provider")
     }
 
-    private fun liveEvent(e: Entry, labels: Map<Long, String>, itemCounts: Map<Long, Int>, contentNames: Map<Long, String>): String? {
+    private fun liveEvent(ctx: Context, e: Entry, labels: Map<Long, String>, itemCounts: Map<Long, Int>, contentNames: Map<Long, String>): String? {
         val stage = e.stage.uppercase(Locale.US)
         val level = e.level
-        val label = sectionLabel(e.op, labels)
+        val label = sectionLabel(ctx, e.op, labels)
         if (stage == "STACK" || stage == "HOMEPAGE_RESULT") return null
         if (stage == "METADATA_DETAIL") {
-            val title = field(e.info, "title")?.replace('_', ' ') ?: "tidak diketahui"
+            val title = field(e.info, "title")?.replace('_', ' ') ?: s(ctx, "unknown")
             val kind = when (field(e.info, "type")) {
-                "Anime" -> "Anime"
-                "TvSeries", "AsianDrama", "Cartoon" -> "Siri"
-                "Movie", "AnimeMovie" -> "Filem"
-                else -> "Kandungan"
+                "Anime" -> s(ctx, "kind_anime")
+                "TvSeries", "AsianDrama", "Cartoon" -> s(ctx, "kind_series")
+                "Movie", "AnimeMovie" -> s(ctx, "kind_movie")
+                else -> s(ctx, "kind_content")
             }
             val year = field(e.info, "year")?.takeUnless { it == "unknown" }?.let { " ($it)" } ?: ""
-            val entryCount = field(e.info, "rekod") ?: "tidak diketahui"
-            val seasonCount = field(e.info, "musim")
+            val count = field(e.info, "rekod") ?: s(ctx, "unknown")
+            val seasons = field(e.info, "musim")
             val numbered = field(e.info, "episod_unik")
             val versions = field(e.info, "versi")
-            return "$kind: $title$year. " + when {
-                entryCount == "tidak berkenaan" -> "Tiada senarai episod untuk jenis kandungan ini."
-                numbered != null -> "Provider memulangkan $entryCount rekod episod" +
-                    (if (versions != null) " merangkumi $versions versi" else "") +
-                    "; $numbered nombor episod berbeza dikenal pasti."
-                else -> "Provider memulangkan $entryCount rekod episod" +
-                    (if (seasonCount != null) " daripada $seasonCount musim" else "") + "."
+            val details = when {
+                count == "tidak_berkenaan" -> s(ctx, "no_episode_list")
+                numbered != null -> s(ctx, "episode_records_unique", count, versions ?: "?", numbered)
+                seasons != null -> s(ctx, "episode_records_seasons", count, seasons)
+                else -> s(ctx, "episode_records", count)
             }
+            return s(ctx, "metadata_summary", kind, title, year, details)
         }
         if (stage == "EPISODE_DETAIL") {
-            val title = field(e.info, "title")?.replace('_', ' ') ?: "kandungan"
-            return if (field(e.info, "selection") == "movie") "Filem dipilih: $title."
-                else "Memilih $title — musim ${field(e.info, "season") ?: "?"}, episod ${field(e.info, "episode") ?: "?"}" +
-                    (field(e.info, "episode_name")?.takeUnless { it == "Unnamed" }?.let { " (${it.replace('_', ' ')})" } ?: "") + "."
+            val title = field(e.info, "title")?.replace('_', ' ') ?: s(ctx, "kind_content")
+            if (field(e.info, "selection") == "movie") return s(ctx, "movie_selected", title)
+            val epName = field(e.info, "episode_name")?.takeUnless { it == "Unnamed" }
+                ?.let { " (${it.replace('_', ' ')})" } ?: ""
+            return s(ctx, "episode_selected", title, field(e.info, "season") ?: "?", field(e.info, "episode") ?: "?", epName)
         }
-        if (stage == "PLAYER_SELECTED" && level == "INFO") {
-            return "Sumber video dipilih (${field(e.info, "source_ref") ?: "ID tidak tersedia"}); " +
-                "${field(e.info, "server")?.replace('_', ' ') ?: "server tidak diketahui"}, " +
-                "kualiti ${field(e.info, "quality") ?: "tidak diketahui"}."
-        }
-        if (stage == "PLAYBACK_HTTP_ERROR" && level == "INFO") {
-            return "Permintaan video ditolak oleh server (HTTP ${field(e.info, "http_status") ?: "?"}); " +
-                "lihat Player untuk host dan jenis respons."
-        }
-        if (stage == "PLAYBACK_FORMAT_ERROR" && level == "INFO") {
-            return "Player gagal membaca format media; lihat Player untuk jenis ralat sebenar."
-        }
-        if (stage == "PLUGIN_LOG") return when (level) {
-            "ERROR", "WARN" -> "Plugin melaporkan masalah. Butiran ada dalam Plugin Logs."
+        if (stage == "PLAYER_SELECTED" && level == "INFO")
+            return s(ctx, "video_selected", field(e.info, "source_ref") ?: s(ctx, "unknown"),
+                field(e.info, "server")?.replace('_', ' ') ?: s(ctx, "unknown_server"),
+                field(e.info, "quality") ?: s(ctx, "unknown"))
+        if (stage == "PLAYBACK_HTTP_ERROR" && level == "INFO")
+            return s(ctx, "video_http_rejected", field(e.info, "http_status") ?: "?")
+        if (stage == "PLAYBACK_FORMAT_ERROR" && level == "INFO") return s(ctx, "video_format_error")
+        if (stage == "PLUGIN_LOG") return when(level) {
+            "ERROR", "WARN" -> s(ctx, "plugin_problem")
             else -> null
         }
         if (stage == "CLOUDFLARE") {
             val step = field(e.info, "step")
             return when {
-                step == "webview_wait" -> "Sedang menunggu pemeriksaan keselamatan laman."
+                step == "webview_wait" -> s(ctx, "waiting_security")
                 step == "webview_return" -> if (field(e.info, "clearance") == "true")
-                    "Pemeriksaan keselamatan selesai; sambungan akan dicuba semula."
-                    else "Pemeriksaan keselamatan ditutup tanpa pengesahan berjaya."
-                step == "retry_request" -> "Mencuba sambungan semula selepas pemeriksaan keselamatan."
-                step == "retry_result" -> "Cubaan semula menerima respons laman (${field(e.info, "status") ?: "status tidak diketahui"})."
-                level == "START" -> "Pemeriksaan keselamatan laman dikesan."
-                level == "FAIL" -> "Pemeriksaan keselamatan laman gagal."
-                level == "PASS" -> "Proses pemeriksaan keselamatan selesai."
+                    s(ctx, "security_complete_retry") else s(ctx, "security_unconfirmed")
+                step == "retry_request" -> s(ctx, "security_retry")
+                step == "retry_result" -> s(ctx, "security_retry_status", field(e.info, "status") ?: s(ctx, "unknown"))
+                level == "START" -> s(ctx, "security_detected")
+                level == "FAIL" -> s(ctx, "security_failed")
+                level == "PASS" -> s(ctx, "security_finished")
                 else -> null
             }
         }
         if (stage == "HTTP") {
             val code = field(e.info, "status")
             return when {
-                level == "WARN" && code != null ->
-                    "Laman memberi respons $code; permintaan ini mungkin dicuba semula."
-                level == "WARN" -> "Sambungan laman mengalami masalah; semak HTTP / Network."
-                level == "FAIL" -> "Permintaan ke laman gagal; semak HTTP / Network."
+                level == "WARN" && code != null -> s(ctx, "site_http_warn", code)
+                level == "WARN" -> s(ctx, "site_warn")
+                level == "FAIL" -> s(ctx, "site_failed")
                 else -> null
             }
         }
-        if (level == "SLOW") return when (stage) {
-            "HOMEPAGE_SECTION" -> "Bahagian $label mengambil masa lebih lama (${field(e.info, "elapsed") ?: "?"}ms)."
-            "HOMEPAGE" -> "Halaman utama mengambil masa lebih lama daripada biasa."
-            "LINKS" -> "Pencarian pautan video mengambil masa lebih lama daripada biasa."
-            else -> "Proses ${stage.lowercase(Locale.US)} mengambil masa lebih lama daripada biasa."
+        if (level == "SLOW") return when(stage) {
+            "HOMEPAGE_SECTION" -> s(ctx, "section_slow", label, field(e.info, "elapsed") ?: "?")
+            "HOMEPAGE" -> s(ctx, "home_slow")
+            "LINKS" -> s(ctx, "links_slow")
+            else -> s(ctx, "process_slow", stage.lowercase(Locale.US))
         }
-        if (level == "FAIL") return when (stage) {
-            "HOMEPAGE_SECTION" -> "Bahagian $label gagal dimuatkan."
-            "HOMEPAGE" -> "Halaman utama gagal dimuatkan."
-            "LINKS" -> "Pencarian pautan video gagal. Semak Links / Extractor dan HTTP / Network."
-            "SEARCH", "QUICK_SEARCH" -> "Carian kandungan gagal."
-            "METADATA" -> "Maklumat kandungan gagal dimuatkan."
-            else -> "Proses provider gagal. Semak Full trace untuk butiran."
+        if (level == "FAIL") return when(stage) {
+            "HOMEPAGE_SECTION" -> s(ctx, "section_failed", label)
+            "HOMEPAGE" -> s(ctx, "home_failed")
+            "LINKS" -> s(ctx, "links_failed")
+            "SEARCH", "QUICK_SEARCH" -> s(ctx, "search_failed")
+            "METADATA" -> s(ctx, "metadata_failed")
+            else -> s(ctx, "provider_failed")
         }
-        if (level == "CANCEL" && stage == "HOMEPAGE_SECTION")
-            return "Memuatkan bahagian $label dibatalkan."
-        if (level == "START") return when (stage) {
-            "HOMEPAGE" -> "Mula memuatkan halaman utama ${field(e.info, "provider") ?: "provider"}."
-            "HOMEPAGE_SECTION" -> "Mula memuatkan bahagian $label."
-            "METADATA" -> "Mula mendapatkan maklumat ${contentNames[e.session] ?: "kandungan"}."
-            "LINKS" -> "Mula mencari pautan video."
-            "SEARCH", "QUICK_SEARCH" -> "Mula mencari kandungan."
+        if (level == "CANCEL" && stage == "HOMEPAGE_SECTION") return s(ctx, "section_canceled", label)
+        if (level == "START") return when(stage) {
+            "HOMEPAGE" -> s(ctx, "home_started", field(e.info, "provider") ?: "provider")
+            "HOMEPAGE_SECTION" -> s(ctx, "section_started", label)
+            "METADATA" -> s(ctx, "metadata_started", contentNames[e.session] ?: s(ctx, "kind_content"))
+            "LINKS" -> s(ctx, "links_started")
+            "SEARCH", "QUICK_SEARCH" -> s(ctx, "search_started")
             else -> null
         }
-        if (level == "PASS") return when (stage) {
-            "HOMEPAGE" -> "Halaman utama selesai dimuatkan."
+        if (level == "PASS") return when(stage) {
+            "HOMEPAGE" -> s(ctx, "home_finished")
             "HOMEPAGE_SECTION" -> {
                 val count = itemCounts[e.op]
-                if (count == null) "Bahagian $label selesai dimuatkan (jumlah hasil tidak diketahui)."
-                else "Bahagian $label selesai dimuatkan ($count item)."
+                if (count == null) s(ctx, "section_finished_unknown", label)
+                else s(ctx, "section_finished_count", label, count)
             }
-            "METADATA" -> "Maklumat ${contentNames[e.session] ?: "kandungan"} berjaya diperoleh."
-            "SEARCH", "QUICK_SEARCH" -> "Carian kandungan selesai."
-            "LINKS" -> "Pencarian pautan video selesai."
-            "PLAYER", "PLAYBACK", "FIRST_FRAME" -> "Video mula dipaparkan oleh player."
+            "METADATA" -> s(ctx, "metadata_finished", contentNames[e.session] ?: s(ctx, "kind_content"))
+            "SEARCH", "QUICK_SEARCH" -> s(ctx, "search_finished")
+            "LINKS" -> s(ctx, "links_finished")
+            "PLAYER", "PLAYBACK", "FIRST_FRAME" -> s(ctx, "video_first_frame")
             else -> null
         }
         return null
     }
 
-    private fun liveStatus(now: Long): String {
+    private fun liveStatus(ctx: Context, now: Long): String {
         // Historical entries stay append-only. In-flight sections are listed separately,
         // never merged or guessed from a shared HTTP request/Cloudflare challenge.
         val running = pending.entries.filter { it.key > ignoreThrough }
@@ -521,7 +517,7 @@ object ProviderTrace {
                 val name = field(e.info, "section")
                 val index = field(e.info, "index")
                 if (!name.isNullOrBlank() && name != "Unnamed") labels[e.op] = name
-                else labels[e.op] = "Bahagian_${index ?: "?"}"
+                else labels[e.op] = s(ctx, "section_number", index ?: "?")
             }
             if (e.stage == "HOMEPAGE_RESULT")
                 field(e.info, "items")?.toIntOrNull()?.let { items[e.op] = it }
@@ -540,49 +536,49 @@ object ProviderTrace {
         }.thenBy { it.key })
 
         return buildString {
-            appendLine("LIVE STATUS")
+            appendLine(s(ctx, "live_status"))
             appendLine()
             if (sectionsRunning.isNotEmpty()) {
-                appendLine("SEKARANG: ${sectionsRunning.size} bahagian halaman utama sedang dimuatkan:")
+                appendLine(s(ctx, "now_sections", sectionsRunning.size))
                 sectionsRunning.take(12).forEach { (id, task) ->
                     val seconds = (now - task.since).coerceAtLeast(0L) / 1000L
-                    appendLine("• ${sectionLabel(id, labels)} — menunggu ${seconds}s.")
+                    appendLine(s(ctx, "section_waiting", sectionLabel(ctx, id, labels), seconds))
                 }
-                if (sectionsRunning.size > 12) appendLine("• ${sectionsRunning.size - 12} bahagian lain sedang dimuatkan.")
+                if (sectionsRunning.size > 12) appendLine(s(ctx, "more_sections", sectionsRunning.size - 12))
                 val networkCount = running.count { it.value.stage == "HTTP" }
                 if (networkCount > 0)
-                    appendLine("Sedang menunggu $networkCount respons laman (belum dapat dipadankan dengan bahagian tertentu).")
+                    appendLine(s(ctx, "waiting_responses", networkCount))
                 val challenge = running.firstOrNull { it.value.stage == "CLOUDFLARE" }
                 if (challenge != null)
-                    appendLine("Pemeriksaan keselamatan laman sedang berjalan (belum dapat dipadankan dengan bahagian tertentu).")
+                    appendLine(s(ctx, "security_unlinked"))
                 // Requests on a shared client might run for several sections. Do not
                 // assign any single HTTP request to a section without verified context.
             } else if (latest != null) {
                 val task = latest.value
                 val seconds = (now - task.since).coerceAtLeast(0L) / 1000L
-                appendLine("SEKARANG: ${liveAction(task.stage, task.provider, labels[latest.key]?.replace('_', ' '))}")
-                appendLine("Menunggu ${seconds}s.")
+                appendLine(s(ctx, "now_status", liveAction(ctx, task.stage, task.provider, labels[latest.key]?.replace('_', ' '))))
+                appendLine(s(ctx, "waiting_seconds", seconds))
             } else {
-                appendLine("SEKARANG: Tiada proses aktif yang dapat dikesan.")
+                appendLine(s(ctx, "now_idle"))
             }
             appendLine()
-            appendLine("SEJARAH PROSES")
-            if (dropped > 0) appendLine("Nota: $dropped rekod paling lama digugurkan kerana had memori.")
+            appendLine(s(ctx, "history"))
+            if (dropped > 0) appendLine(s(ctx, "dropped_old", dropped))
             var lastSession: Long? = null
             var shown = 0
             entries.forEach { e ->
-                val description = liveEvent(e, labels, items, contentNames) ?: return@forEach
+                val description = liveEvent(ctx, e, labels, items, contentNames) ?: return@forEach
                 if (lastSession != e.session) {
                     if (shown > 0) appendLine()
                     val provider = providers[e.session]
                     val content = contentNames[e.session]?.let { " · $it" } ?: ""
-                    appendLine("— ${if (provider == null) "Sesi #${e.session}" else "$provider$content · Sesi #${e.session}"} —")
+                    appendLine("— ${if (provider == null) s(ctx, "session", e.session) else "$provider$content · ${s(ctx, "session", e.session)}"} —")
                     lastSession = e.session
                 }
                 appendLine("${e.at}  $description")
                 shown++
             }
-            if (shown == 0) appendLine("Belum ada langkah yang dapat dikenal pasti. Buka provider dahulu.")
+            if (shown == 0) appendLine(s(ctx, "no_steps"))
         }.trimEnd()
     }
 
@@ -604,23 +600,23 @@ object ProviderTrace {
             (msg.contains("_DONE") && msg.contains(Regex("""(?i)\bcandidates=0\b""")))
     }
 
-    private fun displayEvent(e: Entry): String = if (e.stage == "PLUGIN_LOG") {
+    private fun displayEvent(ctx: Context, e: Entry): String = if (e.stage == "PLUGIN_LOG") {
         val tag = field(e.info, "tag") ?: "Plugin"
         val attribution = field(e.info, "attribution")
         val source = when (attribution) {
-            "single_active_request" -> "permintaan aktif"
-            "provider_session_only" -> "sesi provider; langkah khusus tidak disahkan"
-            "tag_only_unlinked" -> "tidak dipadankan dengan sesi"
-            else -> "sesi tidak disahkan"
+            "single_active_request" -> s(ctx, "attr_active")
+            "provider_session_only" -> s(ctx, "attr_provider")
+            "tag_only_unlinked" -> s(ctx, "attr_unlinked")
+            else -> s(ctx, "attr_unverified")
         }
-        "${e.at}  [$tag] ${e.level}  sesi=${e.session} #${e.op}\n" +
-            "  ${pluginMessage(e.info)}\n  Sumber: $source"
+        "${e.at}  [$tag] ${e.level}  session=${e.session} #${e.op}\n" +
+            "  ${pluginMessage(e.info)}\n  ${s(ctx, "origin_label")}: $source"
     } else "${e.at} session=${e.session} #${e.op} ${e.level} ${e.stage} ${e.info}"
 
     /** Existing UI consumes these strings; only the spinner categories and report change. */
-    fun report(section: String, importantOnly: Boolean): String = synchronized(lock) {
+    fun report(ctx: Context, section: String, importantOnly: Boolean): String = synchronized(lock) {
         val now = SystemClock.elapsedRealtime()
-        if (section == "Live Status") return@synchronized liveStatus(now)
+        if (section == "Live Status") return@synchronized liveStatus(ctx, now)
         val selected = entries.filter {
             section == "Full timeline" || it.section == section ||
                 (section == "Links / Extractor" && isLinkDiscovery(it))
@@ -629,12 +625,12 @@ object ProviderTrace {
             section == "Full timeline" || sectionOf(it.stage) == section
         }
         buildString {
-            appendLine("CLOUDSTREAM PROVIDER DIAGNOSTIC — ${if (importantOnly) "IMPORTANT" else "FULL TRACE"}")
-            appendLine("Section: $section | events: ${selected.size} | active: ${active.size} | discarded: $dropped")
-            if (section == "Plugin Logs") appendLine("Plugin log collector: ${PluginLogCollector.status()}")
+            appendLine("CLOUDSTREAM PROVIDER DIAGNOSTIC — ${if (importantOnly) s(ctx, "important") else s(ctx, "full_trace")}")
+            appendLine(s(ctx, "report_counts", DiagnosticText.section(ctx, section), selected.size, active.size, dropped))
+            if (section == "Plugin Logs") appendLine(s(ctx, "collector_status", PluginLogCollector.status()))
             if (active.isNotEmpty()) {
                 appendLine()
-                appendLine("IN PROGRESS")
+                appendLine(s(ctx, "in_progress"))
                 active.forEach { (id, task) ->
                     val elapsed = now - task.since
                     appendLine("session=${task.session} #$id ${task.stage} provider=${task.provider} waiting=${elapsed}ms${if (elapsed >= SLOW_MS) " [SLOW]" else ""}")
@@ -657,7 +653,7 @@ object ProviderTrace {
                         (e.stage == "PLUGIN_LOG" && (e.level == "ERROR" || pluginFinalNoLinks(e)))
                 }
                 fun importantDisplay(e: Entry): String {
-                    if (e.stage != "PLAYBACK_NET_ERROR") return displayEvent(e)
+                    if (e.stage != "PLAYBACK_NET_ERROR") return displayEvent(ctx, e)
                     val key = loadKey(e)
                     val errors = loadErrors[key].orEmpty()
                     val starts = loadStarts[key].orEmpty()
@@ -669,7 +665,7 @@ object ProviderTrace {
                         "errors_observed=${errors.size} http_statuses=$statuses " +
                         "last_error_type=${field(e.info, "error_type") ?: "unknown"} " +
                         "last_content_type=${field(e.info, "content_type") ?: "not_available"} " +
-                        "nonfinal_load_errors=true (see Full_trace for every retry and PLAYER outcome)"
+                        "nonfinal_load_errors=true (${s(ctx, "see_fulltrace")})"
                 }
                 if (section == "Plugin Logs") {
                     // A poster URL being selected is not evidence that its image loaded.
@@ -678,33 +674,33 @@ object ProviderTrace {
                     }
                     if (posterSelections > 0) {
                         appendLine()
-                        appendLine("Poster: $posterSelections log pemilihan URL gambar; status muat turun gambar tidak disahkan.")
-                        appendLine("URL poster tersedia dalam Full trace (disensor).")
+                        appendLine(s(ctx, "poster_selections", posterSelections))
+                        appendLine(s(ctx, "poster_fulltrace"))
                     }
                 }
                 appendLine()
-                appendLine("KEGAGALAN / PROSES PERLAHAN")
-                if (significant.isEmpty()) appendLine("Tiada kegagalan akhir atau proses perlahan direkodkan di sini.")
+                appendLine(s(ctx, "failures_slowness"))
+                if (significant.isEmpty()) appendLine(s(ctx, "no_failures"))
                 if (significant.any { it.stage == "PLAYBACK_NET_ERROR" })
-                    appendLine("Nota: starts_observed/errors_observed = bilangan callback Media3, bukan bilangan request HTTP sebenar. Ralat muat data boleh pulih; semak FAIL PLAYER untuk hasil akhir.")
+                    appendLine(s(ctx, "callback_note"))
                 significant.takeLast(80).forEach { e ->
                     appendLine(importantDisplay(e))
                     appendLine()
                 }
                 if (selected.any { it.level == "WARN" && it.stage == "HTTP" })
-                    appendLine("HTTP warnings may have recovered; check Full trace for retries.")
+                    appendLine(s(ctx, "http_retry_note"))
             } else {
                 appendLine()
-                appendLine("=== ${section.uppercase(Locale.US)} (${selected.size}) ===")
-                if (selected.isEmpty()) appendLine("No events recorded.")
+                appendLine("=== ${DiagnosticText.section(ctx, section).uppercase(java.util.Locale.getDefault())} (${selected.size}) ===")
+                if (selected.isEmpty()) appendLine(s(ctx, "no_events"))
                 selected.forEachIndexed { index, e ->
                     if (index > 0 && e.stage != "STACK") appendLine()
-                    appendLine(displayEvent(e))
+                    appendLine(displayEvent(ctx, e))
                 }
             }
         }
     }
 
-    fun important(): String = report("Live Status", true)
-    fun full(): String = report("Full timeline", false)
+    fun important(ctx: Context): String = report(ctx, "Live Status", true)
+    fun full(ctx: Context): String = report(ctx, "Full timeline", false)
 }

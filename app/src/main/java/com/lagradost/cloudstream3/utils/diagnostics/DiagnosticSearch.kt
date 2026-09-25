@@ -1,5 +1,7 @@
 package com.lagradost.cloudstream3.utils.diagnostics
 
+import android.content.Context
+
 /** Search the report that has ALREADY been sanitized by ProviderTrace.
  * Full Trace entries are multi-line blocks: keep the event header, context and
  * sanitized URL when any line in that event matches the search term.
@@ -7,17 +9,23 @@ package com.lagradost.cloudstream3.utils.diagnostics
  * history; searching a step shows matching steps under their session headings.
  */
 internal object DiagnosticSearch {
-    private val sessionHeading = Regex("^[–—-]\\s+.+(?:[•·]).*Sesi\\s*#")
+    private val sessionHeading = Regex("^[–—-]\\s+.+(?:[•·]).*(?:Sesi|Session)\\s*#")
 
-    fun filter(report: String, query: String): String {
+    fun filter(report: String, query: String, ctx: Context? = null): String {
         val term = query.trim()
         if (term.isEmpty()) return report
-        val isLiveStatus = report.startsWith("LIVE STATUS")
+        val title = ctx?.let { DiagnosticText.get(it, "live_status") }
+        val isLiveStatus = report.lineSequence().firstOrNull()?.trim()?.let { first ->
+            first.equals(title, ignoreCase = true) ||
+                first.equals("LIVE STATUS", ignoreCase = true) ||
+                first.equals("Live Status", ignoreCase = true) ||
+                first.equals("Status Langsung", ignoreCase = true)
+        } == true
         val hits = if (isLiveStatus) searchSessions(report, term) else searchEvents(report, term)
         return buildString {
-            appendLine("Hasil carian: ${hits.size}")
+            appendLine(ctx?.let { DiagnosticText.get(it, "search_results", hits.size) } ?: "Search results: ${hits.size}")
             appendLine()
-            if (hits.isEmpty()) append("Tiada log yang sepadan.")
+            if (hits.isEmpty()) append(ctx?.let { DiagnosticText.get(it, "search_no_match") } ?: "No matching logs.")
             else append(hits.joinToString("\n\n"))
         }
     }

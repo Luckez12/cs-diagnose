@@ -111,7 +111,7 @@
                 android:id="@+id/settings_diagnose"
                 style="@style/SettingsItem"
                 android:nextFocusUp="@id/settings_extensions"
-                android:text="Diagnose" />
+                android:text="@string/cs_diag_menu" />
 
             <LinearLayout
                 android:id="@+id/app_version_info"

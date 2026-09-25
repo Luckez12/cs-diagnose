@@ -14,3 +14,7 @@
 11. When reporting header information, distinguish link-provided configuration, explicit Media3 DataSpec keys, and **actual transmitted HTTP headers**. Never claim the latter from the former; do not infer missing Referer just because an explicit DataSpec key is absent.
 12. In Important, aggregate repetitive nonfinal load-error callbacks by player operation + load ID without deleting, dropping or changing Full Trace. Callback counts are not verified wire-request counts. HTTP status unavailable from the observer remains `not_exposed`.
 13. Before each patch, compare actual current repo files to the patch base, record honest limits of static checks, and keep this file plus PROJECT_CONTEXT.md/AI_HANDOVER.md up to date. The v15.1 patch base is the locally mounted v15 ZIP, **not** a verified current GitHub checkout.
+
+## Localization rule (v15.2)
+- Diagnose must follow the language chosen in CloudStream Settings. Keep translatable UI and readable status/explanations in `cs_diagnose_strings.xml` (default English plus `values-b+ms` Malay); when a locale is untranslated, fall back to English, not forced Malay. Never translate the technical event codes, stable category IDs, field keys, URLs or raw plugin messages because they are evidence and correlation keys.
+- UI / official Settings and Logcat must remain visually unchanged except the existing Diagnose menu label being a localized Android resource. Patch output remains repository-relative ZIP; update all three handover docs on every patch; do not build an APK locally.

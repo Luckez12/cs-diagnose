@@ -26,6 +26,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.utils.diagnostics.DiagnosticText
 
 /**
  * A dedicated provider-diagnostic PAGE in the activity content, NOT an AlertDialog.
@@ -36,8 +37,8 @@ object DiagnosticDialog {
     private const val PAGE_TAG = "cloudstream-provider-diagnostic-page"
 
     /** Search matches complete multi-line events, not isolated wrapped lines. */
-    internal fun filterReport(report: String, query: String): String =
-        DiagnosticSearch.filter(report, query)
+    internal fun filterReport(report: String, query: String, ctx: Context? = null): String =
+        DiagnosticSearch.filter(report, query, ctx)
 
     private fun dp(context: Context, value: Int): Int =
         (value * context.resources.displayMetrics.density + 0.5f).toInt()
@@ -45,7 +46,7 @@ object DiagnosticDialog {
     private fun copy(context: Context, text: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("CloudStream provider diagnostic", text))
-        Toast.makeText(context, "Diagnostic copied", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, DiagnosticText.get(context, "copy_toast"), Toast.LENGTH_SHORT).show()
     }
 
     fun show(context: Context) {
@@ -77,7 +78,7 @@ object DiagnosticDialog {
             }
             val back = Button(activity).apply {
                 text = "‹"
-                contentDescription = "Close Diagnostic"
+                contentDescription = DiagnosticText.get(activity, "close_descr")
                 isAllCaps = false
                 textSize = 24f
                 minWidth = dp(activity, 44)
@@ -85,7 +86,7 @@ object DiagnosticDialog {
             }
             heading.addView(back, LinearLayout.LayoutParams(dp(activity, 52), dp(activity, 48)))
             heading.addView(TextView(activity).apply {
-                text = "Provider Diagnostic"
+                text = DiagnosticText.get(activity, "page_title")
                 textSize = 20f
                 setTypeface(null, Typeface.BOLD)
                 maxLines = 1
@@ -95,11 +96,11 @@ object DiagnosticDialog {
             // Full-width controls on separate rows: no squeezed/wrapped "Important" label.
             val modeRow = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
             val important = Button(activity).apply {
-                text = "Important"
+                text = DiagnosticText.get(activity, "important")
                 isAllCaps = false
             }
             val trace = Button(activity).apply {
-                text = "Full trace"
+                text = DiagnosticText.get(activity, "full_trace")
                 isAllCaps = false
             }
             modeRow.addView(important, LinearLayout.LayoutParams(0, dp(activity, 48), 1f))
@@ -108,7 +109,8 @@ object DiagnosticDialog {
 
             val sections = Spinner(activity)
             sections.adapter = ArrayAdapter(
-                activity, android.R.layout.simple_spinner_item, ProviderTrace.sections
+                activity, android.R.layout.simple_spinner_item,
+                ProviderTrace.sections.map { DiagnosticText.section(activity, it) }
             ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
             page.addView(sections, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 48)
@@ -120,8 +122,8 @@ object DiagnosticDialog {
                 gravity = Gravity.CENTER_VERTICAL
             }
             val search = EditText(activity).apply {
-                hint = "Search diagnostic..."
-                contentDescription = "Search diagnostic logs"
+                hint = DiagnosticText.get(activity, "search_hint")
+                contentDescription = DiagnosticText.get(activity, "search_descr")
                 isSingleLine = true
                 inputType = InputType.TYPE_CLASS_TEXT
                 textSize = 15f
@@ -130,7 +132,7 @@ object DiagnosticDialog {
             searchRow.addView(search, LinearLayout.LayoutParams(0, dp(activity, 44), 1f))
             val clearSearch = Button(activity).apply {
                 text = "×"
-                contentDescription = "Clear diagnostic search"
+                contentDescription = DiagnosticText.get(activity, "clear_search_descr")
                 isAllCaps = false
                 textSize = 18f
             }
@@ -159,9 +161,9 @@ object DiagnosticDialog {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
-            val copyButton = Button(activity).apply { text = "Copy"; isAllCaps = false }
-            val clearButton = Button(activity).apply { text = "Clear"; isAllCaps = false }
-            val closeButton = Button(activity).apply { text = "Close"; isAllCaps = false }
+            val copyButton = Button(activity).apply { text = DiagnosticText.get(activity, "copy"); isAllCaps = false }
+            val clearButton = Button(activity).apply { text = DiagnosticText.get(activity, "clear"); isAllCaps = false }
+            val closeButton = Button(activity).apply { text = DiagnosticText.get(activity, "close"); isAllCaps = false }
             listOf(copyButton, clearButton, closeButton).forEach {
                 actions.addView(it, LinearLayout.LayoutParams(0, dp(activity, 48), 1f))
             }
@@ -170,14 +172,14 @@ object DiagnosticDialog {
             val handler = Handler(Looper.getMainLooper())
             var lastContent = ""
             fun visibleReport(): String = filterReport(
-                ProviderTrace.report(ProviderTrace.sections[selected], !full),
-                search.text?.toString().orEmpty()
+                ProviderTrace.report(activity, ProviderTrace.sections[selected], !full),
+                search.text?.toString().orEmpty(), activity
             )
             fun refresh() {
                 if (page.parent == null) return
                 // Both the visual selection and report use the SAME mode snapshot.
-                important.text = if (full) "Important" else "✓ Important"
-                trace.text = if (full) "✓ Full trace" else "Full trace"
+                important.text = if (full) DiagnosticText.get(activity, "important") else "✓ " + DiagnosticText.get(activity, "important")
+                trace.text = if (full) "✓ " + DiagnosticText.get(activity, "full_trace") else DiagnosticText.get(activity, "full_trace")
                 important.alpha = if (full) 0.72f else 1f
                 trace.alpha = if (full) 1f else 0.72f
                 important.setTypeface(null, if (full) Typeface.NORMAL else Typeface.BOLD)
