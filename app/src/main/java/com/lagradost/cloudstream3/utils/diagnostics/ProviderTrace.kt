@@ -31,9 +31,11 @@ object ProviderTrace {
         val stage: String,
         val session: Long,
         val since: Long,
-        val heapAtStart: Long
+        val heapAtStart: Long,
+        val providerId: String
     )
     private data class Entry(
+        val recordId: Long,
         val at: String,
         val op: Long,
         val session: Long,
@@ -52,11 +54,14 @@ object ProviderTrace {
     private val contentSessions = linkedMapOf<String, Long>()
     private val contentNames = linkedMapOf<Long, String>()
     private var counter = 0L
+    private var recordCounter = 0L
     private var dropped = 0L
     private var ignoreThrough = 0L
     private val recentNetwork = linkedMapOf<Long, ArrayDeque<String>>()
     // Only public hostnames, never URL paths, query strings or provider credentials.
-    private val providerHosts = linkedMapOf<String, String>()
+    private data class ProviderRegistration(val displayName: String, val host: String)
+    // Hash the exact original provider name; display sanitization must not change identity.
+    private val providerHosts = linkedMapOf<String, ProviderRegistration>()
     private val providerStages = setOf(
         "HOMEPAGE", "HOMEPAGE_SECTION", "SEARCH", "QUICK_SEARCH", "METADATA", "LINKS"
     )
@@ -66,7 +71,7 @@ object ProviderTrace {
         val host = try { java.net.URI(origin).host?.lowercase(Locale.US) } catch (_: Exception) { null }
         if (host.isNullOrBlank()) return
         synchronized(lock) {
-            providerHosts[provider] = host
+            providerHosts[providerIdentity(provider)] = ProviderRegistration(clean(provider), host)
             while (providerHosts.size > 120) providerHosts.remove(providerHosts.keys.first())
         }
     }
@@ -84,7 +89,7 @@ object ProviderTrace {
         if (context.get() != null) return@synchronized begin(stage, host, details)
         val sessions = pending.values.asSequence()
             .filter { it.stage in providerStages }
-            .filter { providerHosts[it.provider]?.let { origin -> hostMatches(host, origin) } == true }
+            .filter { providerHosts[it.providerId]?.let { origin -> hostMatches(host, origin.host) } == true }
             .map { it.session }.distinct().toList()
         if (sessions.size != 1) return@synchronized null
         begin(stage, host, "$details attribution=host_match", sessions.single())
@@ -100,6 +105,14 @@ object ProviderTrace {
     // raw URLs, request bodies, credentials or arbitrary exception messages.
     private fun clean(value: String, limit: Int = 140): String =
         value.replace(Regex("""[^\p{L}\p{M}\p{N} _.=:+()/-]"""), "_").take(limit)
+
+    /** Trusted structured fields still pass through redaction before retention, without a text cap. */
+    private fun detailText(value: String): String =
+        ProviderSafeText.message(value).replace(Regex("""[^\p{L}\p{M}\p{N} _.=:+()/-]"""), "_")
+
+    internal fun providerIdentity(provider: String): String =
+        MessageDigest.getInstance("SHA-256").digest(provider.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     /** Human-readable homepage section label, not the section URL/data or a content title. */
     fun sectionValue(name: String): String {
@@ -192,8 +205,8 @@ object ProviderTrace {
         val owner = if (stage == "STACK") {
             pending[op]?.stage ?: entries.lastOrNull { it.op == op && it.stage != "STACK" }?.stage
         } else null
-        entries.addLast(Entry(stamp(), op, operationSessions[op] ?: op, level,
-            stage, if (stage == "PLUGIN_LOG") ProviderSafeText.message(info) else clean(info, 420), sectionOf(owner ?: stage)))
+        entries.addLast(Entry(++recordCounter, stamp(), op, operationSessions[op] ?: op, level,
+            stage, if (stage == "PLUGIN_LOG") ProviderSafeText.message(info) else detailText(info), sectionOf(owner ?: stage)))
     }
 
     fun begin(stage: String, provider: String, details: String = "", sessionOverride: Long? = null): Long = synchronized(lock) {
@@ -202,12 +215,12 @@ object ProviderTrace {
         val session = sessionOverride ?: context.get()?.session ?: id
         val safeStage = clean(stage)
         val safeProvider = clean(provider)
-        pending[id] = Pending(safeProvider, safeStage, session, SystemClock.elapsedRealtime(), heapMb())
+        pending[id] = Pending(safeProvider, safeStage, session, SystemClock.elapsedRealtime(), heapMb(), providerIdentity(provider))
         operationSessions[id] = session
         while (operationSessions.size > MAX_OPERATIONS) operationSessions.remove(operationSessions.keys.first())
         while (recentNetwork.size > 120) recentNetwork.remove(recentNetwork.keys.first())
         val actor = if (safeStage == "HTTP" || safeStage == "CLOUDFLARE") "host" else "provider"
-        record(id, "START", safeStage, "$actor=$safeProvider ${clean(details)} thread=${clean(Thread.currentThread().name)} main=${Looper.myLooper() == Looper.getMainLooper()}")
+        record(id, "START", safeStage, "$actor=$safeProvider ${detailText(details)} thread=${clean(Thread.currentThread().name)} main=${Looper.myLooper() == Looper.getMainLooper()}")
         id
     }
 
@@ -231,10 +244,10 @@ object ProviderTrace {
                 message.startsWith("[$provider]", ignoreCase = true)
         }
         // Never collect arbitrary Android/system log tags, even if they share the app PID.
-        val registered = providerHosts.keys.filter(::matches)
+        val registered = providerHosts.filterValues { matches(it.displayName) }.keys
         if (registered.isEmpty()) return@synchronized
         val active = pending.entries.filter { (_, task) ->
-            task.stage in providerStages && task.provider in registered && task.session > ignoreThrough
+            task.stage in providerStages && task.providerId in registered && task.session > ignoreThrough
         }
         val sessions = active.map { it.value.session }.distinct()
         // Android logcat has no coroutine context: if several homepage sections
@@ -279,14 +292,14 @@ object ProviderTrace {
         val elapsed = SystemClock.elapsedRealtime() - item.since
         val actor = if (item.stage == "HTTP" || item.stage == "CLOUDFLARE") "host" else "provider"
         record(op, "PASS", item.stage,
-            "$actor=${item.provider} elapsed=${elapsed}ms heapDelta=${heapMb() - item.heapAtStart}MB ${clean(details)}")
+            "$actor=${item.provider} elapsed=${elapsed}ms heapDelta=${heapMb() - item.heapAtStart}MB ${detailText(details)}")
         if (elapsed >= SLOW_MS) record(op, "SLOW", item.stage, "elapsed=${elapsed}ms")
     }
 
     /** An HTTP 4xx/5xx attempt may be recovered by the extension. Don't mark the provider failed. */
     fun httpWarning(op: Long, code: Int, details: String = "") = synchronized(lock) {
         val item = pending.remove(op) ?: return@synchronized
-        val info = "host=${item.provider} status=$code elapsed=${SystemClock.elapsedRealtime() - item.since}ms ${clean(details)}"
+        val info = "host=${item.provider} status=$code elapsed=${SystemClock.elapsedRealtime() - item.since}ms ${detailText(details)}"
         recentNetwork.getOrPut(item.session) { ArrayDeque() }.apply {
             if (size == 6) removeFirst()
             addLast("HTTP_$code host=${item.provider}")
@@ -320,12 +333,12 @@ object ProviderTrace {
         val recent = if (stage == "LINKS") recentNetwork[item?.session ?: operationSessions[op]]
             ?.joinToString(";", prefix = " recent_http_attempts=", postfix = " (not necessarily cause)") ?: "" else ""
         record(op, "FAIL", stage,
-            "$actor=${item?.provider ?: previousStart?.info?.substringAfter("provider=")?.substringBefore(' ') ?: "unknown"} type=${clean(type)} elapsed=${elapsed}ms ${clean(details)}$recent")
+            "$actor=${item?.provider ?: previousStart?.info?.substringAfter("provider=")?.substringBefore(' ') ?: "unknown"} type=${clean(type)} elapsed=${elapsed}ms ${detailText(details)}$recent")
     }
 
-    fun cancelled(op: Long) = synchronized(lock) {
+    fun cancelled(op: Long, reason: String = "cancelled") = synchronized(lock) {
         val item = pending.remove(op) ?: return@synchronized
-        record(op, "CANCEL", item.stage, "provider=${item.provider} elapsed=${SystemClock.elapsedRealtime() - item.since}ms")
+        record(op, "CANCEL", item.stage, "provider=${item.provider} elapsed=${SystemClock.elapsedRealtime() - item.since}ms reason=${clean(reason)}")
     }
 
     /** Throwable.message can contain a signed URL or credential, so retain class + safe frames.
@@ -609,9 +622,15 @@ object ProviderTrace {
             "tag_only_unlinked" -> s(ctx, "attr_unlinked")
             else -> s(ctx, "attr_unverified")
         }
-        "${e.at}  [$tag] ${e.level}  session=${e.session} #${e.op}\n" +
-            "  ${pluginMessage(e.info)}\n  ${s(ctx, "origin_label")}: $source"
-    } else "${e.at} session=${e.session} #${e.op} ${e.level} ${e.stage} ${e.info}"
+        val header = "${e.at}  [$tag] ${e.level}  session=${e.session} #${e.op}"
+        val message = pluginMessage(e.info)
+        val rendered = if (DiagnosticRecordText.parts(message).size == 1) "$header\n  $message"
+            else DiagnosticRecordText.display(header, message, e.recordId, "session=${e.session} #${e.op} stage=${e.stage}")
+        "$rendered\n  ${s(ctx, "origin_label")}: $source"
+    } else DiagnosticRecordText.display(
+        "${e.at} session=${e.session} #${e.op} ${e.level} ${e.stage}", e.info, e.recordId,
+        "session=${e.session} #${e.op} stage=${e.stage}"
+    )
 
     /** Existing UI consumes these strings; only the spinner categories and report change. */
     fun report(ctx: Context, section: String, importantOnly: Boolean): String = synchronized(lock) {

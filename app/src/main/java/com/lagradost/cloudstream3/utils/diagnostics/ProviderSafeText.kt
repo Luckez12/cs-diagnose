@@ -28,13 +28,13 @@ internal object ProviderSafeText {
     }
 
     fun message(input: String): String {
-        var value = input.take(1600).replace('\n', ' ').replace('\r', ' ')
+        var value = input.replace('\n', ' ').replace('\r', ' ')
         value = urls.replace(value) { url(it.value) }
         value = bearer.replace(value, "Bearer [REDACTED]")
         value = sensitiveHeaders.replace(value, "[SENSITIVE HEADER REDACTED]")
         value = secrets.replace(value) { "${it.groupValues[1]}[REDACTED]" }
         value = jwt.replace(value, "[JWT REDACTED]")
         value = longOpaque.replace(value, "[OPAQUE REDACTED]")
-        return value.take(420)
+        return value
     }
 }

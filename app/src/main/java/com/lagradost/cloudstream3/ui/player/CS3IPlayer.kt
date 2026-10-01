@@ -286,10 +286,6 @@ class CS3IPlayer : IPlayer {
         preview: Boolean,
     ) {
         Log.i(TAG, "loadPlayer")
-        providerTracePlayerId = ProviderTrace.begin("PLAYER", "selected_source",
-            "source=" + when { link != null -> "stream"; data != null -> "local"; else -> "none" })
-        providerTraceSelectedLink = link
-        if (link != null) PlaybackSourceTrace.selected(providerTracePlayerId, link)
         if (sameEpisode) {
             saveData()
         } else {
@@ -304,8 +300,12 @@ class CS3IPlayer : IPlayer {
         // we want autoplay because of TV and UX
         isPlaying = autoPlay ?: isPlaying
 
-        // release the current exoplayer and cache
-        releasePlayer()
+        // Release closes the old diagnostic operation before creating the new one.
+        releasePlayer(traceReason = "source_changed")
+        providerTracePlayerId = ProviderTrace.begin("PLAYER", "selected_source",
+            "source=" + when { link != null -> "stream"; data != null -> "local"; else -> "none" })
+        providerTraceSelectedLink = link
+        if (link != null) PlaybackSourceTrace.selected(providerTracePlayerId, link)
 
         if (link != null) {
             // only video support atm
@@ -598,8 +598,12 @@ class CS3IPlayer : IPlayer {
         }
     }
 
-    private fun releasePlayer(saveTime: Boolean = true) {
+    private fun releasePlayer(saveTime: Boolean = true, traceReason: String? = "released") {
         Log.i(TAG, "releasePlayer")
+        if (traceReason != null) {
+            ProviderTrace.cancelled(providerTracePlayerId, traceReason)
+            providerTracePlayerId = 0L
+        }
         eventLooperIndex += 1
         if (saveTime)
             updatedTime()
@@ -1820,7 +1824,8 @@ class CS3IPlayer : IPlayer {
                 if (exoPlayer == null) return@ioSafe
                 runOnMainThread {
                     if (exoPlayer == null) return@runOnMainThread
-                    releasePlayer()
+                    // Internal source setup continues the same diagnostic operation.
+                    releasePlayer(traceReason = null)
                     if (hash != null) {
                         torrentEventLooper(hash)
                     }
@@ -1875,7 +1880,7 @@ class CS3IPlayer : IPlayer {
                     if (!retry) {
                         // this causes a *bug* that restarts all torrents from 0
                         // but I would call this a feature
-                        releasePlayer()
+                        releasePlayer(traceReason = null)
                         loadExo(context, listOf(), listOf())
                     }
                     event(
@@ -2015,10 +2020,15 @@ class CS3IPlayer : IPlayer {
     override fun reloadPlayer(context: Context) {
         Log.i(TAG, "reloadPlayer")
 
-        releasePlayer(false)
+        releasePlayer(false, traceReason = "reloaded")
         currentLink?.let {
+            providerTracePlayerId = ProviderTrace.begin("PLAYER", "selected_source", "source=stream reason=reloaded")
+            providerTraceSelectedLink = it
+            PlaybackSourceTrace.selected(providerTracePlayerId, it)
             loadOnlinePlayer(context, it)
         } ?: currentDownloadedFile?.let {
+            providerTracePlayerId = ProviderTrace.begin("PLAYER", "selected_source", "source=local reason=reloaded")
+            providerTraceSelectedLink = null
             loadOfflinePlayer(context, it)
         }
     }
