@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="cs_diag_save">Save</string>
+    <string name="cs_diag_save_success">Diagnostic saved</string>
+    <string name="cs_diag_save_failed">Could not save diagnostic. Try again.</string>
+    <string name="cs_diag_save_busy">A diagnostic save is already in progress.</string>
     <string name="cs_diag_copy_toast">Diagnostic copied</string>
     <string name="cs_diag_close_descr">Close diagnostic</string>
     <string name="cs_diag_page_title">Provider Diagnostic</string>

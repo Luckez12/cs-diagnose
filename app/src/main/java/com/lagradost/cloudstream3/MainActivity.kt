@@ -195,6 +195,14 @@ import kotlin.reflect.full.createInstance
 import kotlin.system.exitProcess
 
 class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCallback {
+    private lateinit var diagnosticSaveLauncher: ActivityResultLauncher<String>
+
+    fun saveDiagnosticReport(report: String, section: String, full: Boolean) {
+        com.lagradost.cloudstream3.utils.diagnostics.DiagnosticExport.save(
+            this, diagnosticSaveLauncher, report, section, full
+        )
+    }
+
     companion object {
         var activityResultLauncher: ActivityResultLauncher<Intent>? = null
 
@@ -1200,6 +1208,8 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
         setNavigationBarColorCompat(R.attr.primaryGrayBackground)
         updateLocale()
         super.onCreate(savedInstanceState)
+        diagnosticSaveLauncher =
+            com.lagradost.cloudstream3.utils.diagnostics.DiagnosticExport.register(this)
         try {
             if (isCastApiAvailable()) {
                 CastContext.getSharedInstance(this) { it.run() }

@@ -25,6 +25,9 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.core.widget.TextViewCompat
+import androidx.appcompat.widget.AppCompatButton
+import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.utils.diagnostics.DiagnosticText
 
@@ -161,10 +164,20 @@ object DiagnosticDialog {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
             }
-            val copyButton = Button(activity).apply { text = DiagnosticText.get(activity, "copy"); isAllCaps = false }
-            val clearButton = Button(activity).apply { text = DiagnosticText.get(activity, "clear"); isAllCaps = false }
-            val closeButton = Button(activity).apply { text = DiagnosticText.get(activity, "close"); isAllCaps = false }
-            listOf(copyButton, clearButton, closeButton).forEach {
+            val copyButton = AppCompatButton(activity).apply { text = DiagnosticText.get(activity, "copy"); isAllCaps = false }
+            val saveButton = AppCompatButton(activity).apply { text = DiagnosticText.get(activity, "save"); isAllCaps = false }
+            val clearButton = AppCompatButton(activity).apply { text = DiagnosticText.get(activity, "clear"); isAllCaps = false }
+            val closeButton = AppCompatButton(activity).apply { text = DiagnosticText.get(activity, "close"); isAllCaps = false }
+            listOf(copyButton, saveButton, clearButton, closeButton).forEach {
+                // Four equal touch targets; fit Malay labels and large font settings too.
+                it.minWidth = 0
+                it.minimumWidth = 0
+                it.setPadding(dp(activity, 4), 0, dp(activity, 4), 0)
+                it.maxLines = 1
+                it.textSize = 14f
+                TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                    it, 10, 14, 1, android.util.TypedValue.COMPLEX_UNIT_SP
+                )
                 actions.addView(it, LinearLayout.LayoutParams(0, dp(activity, 48), 1f))
             }
             page.addView(actions)
@@ -230,6 +243,14 @@ object DiagnosticDialog {
             }
             // Copy what the user actually sees after Search / category / mode filtering.
             copyButton.setOnClickListener { copy(activity, visibleReport()) }
+            saveButton.setOnClickListener {
+                val host = activity as? MainActivity
+                if (host == null) {
+                    Toast.makeText(activity, DiagnosticText.get(activity, "save_failed"), Toast.LENGTH_LONG).show()
+                } else {
+                    host.saveDiagnosticReport(visibleReport(), ProviderTrace.sections[selected], full)
+                }
+            }
             clearSearch.setOnClickListener { search.text?.clear() }
             search.addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit

@@ -29,6 +29,10 @@ internal object DiagnosticText {
             "search_hint" -> R.string.cs_diag_search_hint
             "search_descr" -> R.string.cs_diag_search_descr
             "clear_search_descr" -> R.string.cs_diag_clear_search_descr
+            "save" -> R.string.cs_diag_save
+            "save_success" -> R.string.cs_diag_save_success
+            "save_failed" -> R.string.cs_diag_save_failed
+            "save_busy" -> R.string.cs_diag_save_busy
             "copy" -> R.string.cs_diag_copy
             "clear" -> R.string.cs_diag_clear
             "close" -> R.string.cs_diag_close

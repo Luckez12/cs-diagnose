@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="cs_diag_save">Simpan</string>
+    <string name="cs_diag_save_success">Diagnostic disimpan</string>
+    <string name="cs_diag_save_failed">Gagal menyimpan diagnostic. Cuba lagi.</string>
+    <string name="cs_diag_save_busy">Diagnostic sedang disimpan.</string>
     <string name="cs_diag_copy_toast">Laporan diagnostik disalin</string>
     <string name="cs_diag_close_descr">Tutup diagnostik</string>
     <string name="cs_diag_page_title">Diagnostik Provider</string>
