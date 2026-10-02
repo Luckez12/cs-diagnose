@@ -30,6 +30,8 @@ internal object DiagnosticText {
             "search_descr" -> R.string.cs_diag_search_descr
             "clear_search_descr" -> R.string.cs_diag_clear_search_descr
             "summary_extraction_mixed" -> R.string.cs_diag_summary_extraction_mixed
+            "summary_verification" -> R.string.cs_diag_summary_verification
+            "summary_byse_verification" -> R.string.cs_diag_summary_byse_verification
             "summary_title" -> R.string.cs_diag_summary_title
             "summary_note" -> R.string.cs_diag_summary_note
             "summary_empty" -> R.string.cs_diag_summary_empty

@@ -83,4 +83,69 @@ class DiagnosticServerSummaryTest {
         assertFalse(hit.contains("server=Other"))
         assertTrue(rows.all { it.attempts.isEmpty() })
     }
+
+    private fun byseInventory(op: Long = 23, options: String = "bysesMalaySub 7[nume=7,type=mv]") =
+        event(op, "PLUGIN_LOG", "tag=MSM21 attribution=single_active_request MSM21_OPTIONS count=1 $options")
+    private fun byseBlocked(op: Long = 23) =
+        event(op, "PLUGIN_LOG", "tag=MSM21 attribution=single_active_request MSM21_V15_BYSE_BLOCKED reason=human_verification_required", "WARN")
+
+    @Test fun `verification evidence does not invent a terminal result from delayed unlinked logs`() {
+        val rows = DiagnosticServerSummary.build(listOf(start, byseInventory(), byseBlocked(),
+            event(36, "PLUGIN_LOG", "tag=MSM21 attribution=tag_only_unlinked MSM21_V12_OPTION_DONE label=bysesMalaySub 7 mirrors=1 success=false", session = 0)))
+        val row = rows.single()
+        assertTrue(row.byseVerification)
+        assertEquals("summary_extraction_unknown", row.extraction)
+        assertTrue(row.attempts.isEmpty())
+        val report = DiagnosticServerSummary.render(rows) { it }
+        assertTrue(report.contains("verification_reason=human_verification_required"))
+        assertTrue(report.contains("server_match=unique_byse_inventory"))
+    }
+
+    @Test fun `family evidence requires unique explicit inventory rather than server name guessing`() {
+        val ambiguous = DiagnosticServerSummary.build(listOf(start,
+            byseInventory(options = "bysesMalaySub 7[nume=7,type=mv] || bysesMalaySub 9[nume=9,type=mv]"), byseBlocked()))
+        assertEquals(2, ambiguous.size)
+        assertTrue(ambiguous.none { it.byseVerification })
+        val noInventory = DiagnosticServerSummary.build(listOf(start,
+            event(23, "LINK_RECEIVED", "server=bysesMalaySub_7 source_ref=byse"), byseBlocked()))
+        assertFalse(noInventory.single().byseVerification)
+    }
+
+    @Test fun `verification needs matching request start tag and linked attribution`() {
+        val info = "tag=MSM21 attribution=single_active_request MSM21_V15_BYSE_BLOCKED reason=human_verification_required"
+        val rejected = listOf(
+            event(30, "PLUGIN_LOG", info),
+            event(23, "PLUGIN_LOG", info, session = 0),
+            event(23, "PLUGIN_LOG", info.replace("tag=MSM21", "tag=Other")),
+            event(23, "PLUGIN_LOG", info.replace("single_active_request", "tag_only_unlinked")),
+            event(23, "PLUGIN_LOG", info.replace("human_verification_required", "unknown_reason"))
+        )
+        for (warning in rejected) {
+            assertFalse(DiagnosticServerSummary.build(listOf(start, byseInventory(), warning)).single().byseVerification)
+        }
+        assertTrue(DiagnosticServerSummary.build(listOf(byseInventory(), byseBlocked())).isEmpty())
+        val anotherRequest = event(30, "LINKS", "provider=MSM21", "START")
+        assertFalse(DiagnosticServerSummary.build(listOf(start, anotherRequest, byseInventory(), byseBlocked(30))).single().byseVerification)
+    }
+
+    @Test fun `verification resolution survives reordered duplicate evidence and preserves later success`() {
+        val rows = DiagnosticServerSummary.build(listOf(start, byseBlocked(), byseBlocked(), byseInventory(), byseInventory(),
+            event(23, "LINK_RECEIVED", "server=bysesMalaySub_7 source_ref=byse"),
+            event(42, "PLAYER_SELECTED", "server=bysesMalaySub_7 source_ref=byse"),
+            event(42, "PLAYER", "first_frame=yes elapsed=500ms", "PASS")))
+        assertEquals(1, rows.size)
+        assertTrue(rows.single().byseVerification)
+        assertEquals("summary_links_found", rows.single().extraction)
+        assertEquals("summary_frame", rows.single().attempts.single().status)
+        assertEquals(1, Regex("verification_reason=").findAll(DiagnosticServerSummary.render(rows) { it }).count())
+    }
+
+    @Test fun `verification search keeps its complete server row only`() {
+        val rows = DiagnosticServerSummary.build(listOf(start, byseInventory(), byseBlocked(), link))
+        val hit = DiagnosticSearch.filter("HEADER\ncounts\n\n" + DiagnosticServerSummary.render(rows) { it }, "human_verification_required")
+        assertTrue(hit.contains("server=bysesMalaySub_7"))
+        assertTrue(hit.contains("summary_extraction_unknown"))
+        assertFalse(hit.contains("server=upnsMalaySub_6"))
+    }
+
 }

@@ -134,4 +134,6 @@
     <string name="cs_diag_export_title">KONTEKS EKSPORT</string>
     <string name="cs_diag_export_note">Versi provider ialah metadata pemasangan semasa eksport jika dapat dikenal pasti; bukan jaminan versi ketika event berlaku. Carian digunakan pada kandungan report.</string>
     <string name="cs_diag_summary_extraction_mixed">Link diperhatikan; provider juga melaporkan extraction gagal</string>
+    <string name="cs_diag_summary_verification">Bukti verification</string>
+    <string name="cs_diag_summary_byse_verification">Provider melaporkan verification manusia diperlukan; dipadankan dengan satu-satunya pilihan Byse yang disimpan untuk request ini. Ini bukan keputusan akhir extraction.</string>
 </resources>
