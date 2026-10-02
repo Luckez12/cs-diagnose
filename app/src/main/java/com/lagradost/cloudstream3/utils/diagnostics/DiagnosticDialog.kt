@@ -4,6 +4,9 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.Handler
@@ -11,7 +14,6 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -20,7 +22,7 @@ import android.text.TextWatcher
 import android.text.InputType
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Spinner
+import android.widget.HorizontalScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -110,13 +112,38 @@ object DiagnosticDialog {
             modeRow.addView(trace, LinearLayout.LayoutParams(0, dp(activity, 48), 1f))
             page.addView(modeRow)
 
-            val sections = Spinner(activity)
-            sections.adapter = ArrayAdapter(
-                activity, android.R.layout.simple_spinner_item,
-                ProviderTrace.sections.map { DiagnosticText.section(activity, it) }
-            ).apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-            page.addView(sections, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 48)
+            // Compact category tabs; the stable category IDs still drive reports and exports.
+            val categoryRow = LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val categoryTabs = ProviderTrace.sections.mapIndexed { index, section ->
+                AppCompatButton(activity).apply {
+                    text = DiagnosticText.tab(activity, section)
+                    contentDescription = DiagnosticText.section(activity, section)
+                    isAllCaps = false
+                    textSize = 13f
+                    maxLines = 1
+                    minWidth = dp(activity, 56)
+                    minimumWidth = dp(activity, 56)
+                    setPadding(dp(activity, 14), 0, dp(activity, 14), 0)
+                    setTextColor(Color.parseColor("#E5E2EB"))
+                    backgroundTintList = null
+                    background = categoryBackground(activity)
+                    isSelected = index == selected
+                    categoryRow.addView(this, LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, dp(activity, 48)
+                    ).apply { marginEnd = dp(activity, 6) })
+                }
+            }
+            val categoryScroll = HorizontalScrollView(activity).apply {
+                isHorizontalScrollBarEnabled = false
+                clipToPadding = false
+                setPadding(0, dp(activity, 4), 0, dp(activity, 4))
+                addView(categoryRow)
+            }
+            page.addView(categoryScroll, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 56)
             ))
 
             // Search is local to Diagnose. Raw Android Logcat and its UI are untouched.
@@ -237,13 +264,19 @@ object DiagnosticDialog {
                 scroll.scrollTo(0, 0)
                 refresh()
             }
-            sections.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    selected = position
-                    scroll.scrollTo(0, 0)
-                    refresh()
+            categoryTabs.forEachIndexed { index, tab ->
+                tab.setOnClickListener {
+                    if (selected != index) {
+                        selected = index
+                        categoryTabs.forEachIndexed { tabIndex, button ->
+                            button.isSelected = tabIndex == selected
+                        }
+                        scroll.scrollTo(0, 0)
+                        refresh()
+                    }
+                    // Reveal the full tab after touch or D-pad selection without moving log content.
+                    tab.requestRectangleOnScreen(Rect(0, 0, tab.width, tab.height), false)
                 }
-                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
             }
             // Export the filtered report body plus fresh context; Copy and Save share this path.
             copyButton.setOnClickListener { copy(activity, exportReport()) }
@@ -305,6 +338,22 @@ object DiagnosticDialog {
             page.requestFocus()
             refresh()
             handler.postDelayed(update, 1500)
+        }
+    }
+
+    /** Rounded outlined tabs with purple selection and a distinct keyboard/TV focus border. */
+    private fun categoryBackground(context: Context): StateListDrawable {
+        fun shape(fill: String, border: String, focused: Boolean = false) = GradientDrawable().apply {
+            cornerRadius = dp(context, 8).toFloat()
+            setColor(Color.parseColor(fill))
+            setStroke(dp(context, if (focused) 2 else 1), Color.parseColor(border))
+        }
+        return StateListDrawable().apply {
+            addState(intArrayOf(android.R.attr.state_focused, android.R.attr.state_selected), shape("#494257", "#D5C5F2", true))
+            addState(intArrayOf(android.R.attr.state_focused), shape("#26232E", "#D5C5F2", true))
+            addState(intArrayOf(android.R.attr.state_pressed), shape("#5A506B", "#A99ABB"))
+            addState(intArrayOf(android.R.attr.state_selected), shape("#494257", "#494257"))
+            addState(intArrayOf(), shape("#00000000", "#45454D"))
         }
     }
 

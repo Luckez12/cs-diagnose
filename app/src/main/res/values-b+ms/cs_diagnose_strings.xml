@@ -136,4 +136,11 @@
     <string name="cs_diag_summary_extraction_mixed">Link diperhatikan; provider juga melaporkan extraction gagal</string>
     <string name="cs_diag_summary_verification">Bukti verification</string>
     <string name="cs_diag_summary_byse_verification">Provider melaporkan verification manusia diperlukan; dipadankan dengan satu-satunya pilihan Byse yang disimpan untuk request ini. Ini bukan keputusan akhir extraction.</string>
+    <string name="cs_diag_tab_live">Langsung</string>
+    <string name="cs_diag_tab_provider">Provider</string>
+    <string name="cs_diag_tab_network">Rangkaian</string>
+    <string name="cs_diag_tab_plugins">Plugin</string>
+    <string name="cs_diag_tab_extractor">Extractor</string>
+    <string name="cs_diag_tab_player">Player</string>
+    <string name="cs_diag_tab_full">Penuh</string>
 </resources>

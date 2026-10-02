@@ -19,8 +19,28 @@ internal object DiagnosticText {
         else -> sectionId
     }
 
+    /** Short tab captions only; reports and filenames retain their full category names. */
+    fun tab(ctx: Context, sectionId: String): String = when (sectionId) {
+        "Live Status" -> get(ctx, "tab_live")
+        "Provider Process" -> get(ctx, "tab_provider")
+        "HTTP / Network" -> get(ctx, "tab_network")
+        "Plugin Logs" -> get(ctx, "tab_plugins")
+        "Links / Extractor" -> get(ctx, "tab_extractor")
+        "Player" -> get(ctx, "tab_player")
+        "Full timeline" -> get(ctx, "tab_full")
+        else -> section(ctx, sectionId)
+    }
+
     fun get(ctx: Context, key: String, vararg args: Any): String {
         val resId = when(key) {
+            "tab_live" -> R.string.cs_diag_tab_live
+            "tab_provider" -> R.string.cs_diag_tab_provider
+            "tab_network" -> R.string.cs_diag_tab_network
+            "tab_plugins" -> R.string.cs_diag_tab_plugins
+            "tab_extractor" -> R.string.cs_diag_tab_extractor
+            "tab_player" -> R.string.cs_diag_tab_player
+            "tab_full" -> R.string.cs_diag_tab_full
+
             "copy_toast" -> R.string.cs_diag_copy_toast
             "close_descr" -> R.string.cs_diag_close_descr
             "page_title" -> R.string.cs_diag_page_title

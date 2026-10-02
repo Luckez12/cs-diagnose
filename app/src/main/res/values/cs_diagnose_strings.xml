@@ -136,4 +136,11 @@
     <string name="cs_diag_summary_extraction_mixed">Links observed; the provider also reported unsuccessful extraction</string>
     <string name="cs_diag_summary_verification">Verification evidence</string>
     <string name="cs_diag_summary_byse_verification">Provider reported human verification required; matched to the only Byse option retained for this request. This is not a final extraction result.</string>
+    <string name="cs_diag_tab_live">Live</string>
+    <string name="cs_diag_tab_provider">Provider</string>
+    <string name="cs_diag_tab_network">Network</string>
+    <string name="cs_diag_tab_plugins">Plugins</string>
+    <string name="cs_diag_tab_extractor">Extractor</string>
+    <string name="cs_diag_tab_player">Player</string>
+    <string name="cs_diag_tab_full">Full</string>
 </resources>
