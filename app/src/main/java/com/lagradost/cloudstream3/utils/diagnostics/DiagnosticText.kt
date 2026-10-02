@@ -29,6 +29,25 @@ internal object DiagnosticText {
             "search_hint" -> R.string.cs_diag_search_hint
             "search_descr" -> R.string.cs_diag_search_descr
             "clear_search_descr" -> R.string.cs_diag_clear_search_descr
+            "summary_extraction_mixed" -> R.string.cs_diag_summary_extraction_mixed
+            "summary_title" -> R.string.cs_diag_summary_title
+            "summary_note" -> R.string.cs_diag_summary_note
+            "summary_empty" -> R.string.cs_diag_summary_empty
+            "summary_extraction" -> R.string.cs_diag_summary_extraction
+            "summary_playback" -> R.string.cs_diag_summary_playback
+            "summary_links_found" -> R.string.cs_diag_summary_links_found
+            "summary_extraction_empty" -> R.string.cs_diag_summary_extraction_empty
+            "summary_extraction_unknown" -> R.string.cs_diag_summary_extraction_unknown
+            "summary_origin_unknown" -> R.string.cs_diag_summary_origin_unknown
+            "summary_not_tested" -> R.string.cs_diag_summary_not_tested
+            "summary_pending" -> R.string.cs_diag_summary_pending
+            "summary_frame" -> R.string.cs_diag_summary_frame
+            "summary_failed" -> R.string.cs_diag_summary_failed
+            "summary_frame_then_failed" -> R.string.cs_diag_summary_frame_then_failed
+            "summary_cancelled" -> R.string.cs_diag_summary_cancelled
+            "summary_evidence_gap" -> R.string.cs_diag_summary_evidence_gap
+            "export_title" -> R.string.cs_diag_export_title
+            "export_note" -> R.string.cs_diag_export_note
             "save" -> R.string.cs_diag_save
             "save_success" -> R.string.cs_diag_save_success
             "save_failed" -> R.string.cs_diag_save_failed

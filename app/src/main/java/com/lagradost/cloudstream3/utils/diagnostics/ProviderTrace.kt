@@ -50,6 +50,7 @@ object ProviderTrace {
     private val entries = ArrayDeque<Entry>()
     private val pending = linkedMapOf<Long, Pending>()
     private val operationSessions = linkedMapOf<Long, Long>()
+    private val operationProviders = linkedMapOf<Long, String>()
     // Store a hash, never the provider's content URL or episode payload.
     private val contentSessions = linkedMapOf<String, Long>()
     private val contentNames = linkedMapOf<Long, String>()
@@ -217,7 +218,12 @@ object ProviderTrace {
         val safeProvider = clean(provider)
         pending[id] = Pending(safeProvider, safeStage, session, SystemClock.elapsedRealtime(), heapMb(), providerIdentity(provider))
         operationSessions[id] = session
-        while (operationSessions.size > MAX_OPERATIONS) operationSessions.remove(operationSessions.keys.first())
+        operationProviders[id] = providerIdentity(provider)
+        while (operationSessions.size > MAX_OPERATIONS) {
+            val oldest = operationSessions.keys.first()
+            operationSessions.remove(oldest)
+            operationProviders.remove(oldest)
+        }
         while (recentNetwork.size > 120) recentNetwork.remove(recentNetwork.keys.first())
         val actor = if (safeStage == "HTTP" || safeStage == "CLOUDFLARE") "host" else "provider"
         record(id, "START", safeStage, "$actor=$safeProvider ${detailText(details)} thread=${clean(Thread.currentThread().name)} main=${Looper.myLooper() == Looper.getMainLooper()}")
@@ -382,7 +388,7 @@ object ProviderTrace {
     }
 
     fun clear() = synchronized(lock) {
-        entries.clear(); pending.clear(); operationSessions.clear(); recentNetwork.clear()
+        entries.clear(); pending.clear(); operationSessions.clear(); operationProviders.clear(); recentNetwork.clear()
         contentSessions.clear(); contentNames.clear(); dropped = 0L
         // Prevent an old in-flight operation from repopulating a freshly cleared report.
         ignoreThrough = counter
@@ -632,6 +638,29 @@ object ProviderTrace {
         "session=${e.session} #${e.op} stage=${e.stage}"
     )
 
+    /** Identities present in retained evidence, for optional installed-plugin metadata at export. */
+    internal fun retainedProviderIdentities(): List<Pair<String, String>> = synchronized(lock) {
+        entries.mapNotNull { operationProviders[it.op] }.distinct().mapNotNull { id ->
+            providerHosts[id]?.let { id to it.displayName }
+        }
+    }
+
+    private fun serverSummary(ctx: Context, section: String): String {
+        val events = entries.map { e -> DiagnosticServerSummary.Event(
+            e.op, e.session, e.level, e.stage, e.info,
+            operationProviders[e.op]?.let { providerHosts[it]?.displayName } ?: "unknown"
+        ) }
+        val rows = DiagnosticServerSummary.build(events).let { all ->
+            when (section) {
+                "Player" -> all.filter { it.attempts.isNotEmpty() }
+                "Links / Extractor" -> all.filter { it.owner != null }
+                else -> all
+            }
+        }
+        return DiagnosticServerSummary.render(rows) { s(ctx, it) } +
+            if (dropped > 0) "\n" + s(ctx, "summary_evidence_gap") else ""
+    }
+
     /** Existing UI consumes these strings; only the spinner categories and report change. */
     fun report(ctx: Context, section: String, importantOnly: Boolean): String = synchronized(lock) {
         val now = SystemClock.elapsedRealtime()
@@ -646,6 +675,10 @@ object ProviderTrace {
         buildString {
             appendLine("CLOUDSTREAM PROVIDER DIAGNOSTIC — ${if (importantOnly) s(ctx, "important") else s(ctx, "full_trace")}")
             appendLine(s(ctx, "report_counts", DiagnosticText.section(ctx, section), selected.size, active.size, dropped))
+            if (section in setOf("Full timeline", "Links / Extractor", "Player")) {
+                appendLine()
+                appendLine(serverSummary(ctx, section))
+            }
             if (section == "Plugin Logs") appendLine(s(ctx, "collector_status", PluginLogCollector.status()))
             if (active.isNotEmpty()) {
                 appendLine()

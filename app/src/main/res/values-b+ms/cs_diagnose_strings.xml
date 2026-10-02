@@ -115,4 +115,23 @@
     <string name="cs_diag_menu">Diagnostik</string>
     <string name="cs_diag_search_results">Hasil carian: %1$d</string>
     <string name="cs_diag_search_no_match">Tiada log yang sepadan.</string>
+    <string name="cs_diag_summary_title">RINGKASAN SERVER</string>
+    <string name="cs_diag_summary_note">Berdasarkan rekod yang masih disimpan. Link atau frame pertama tidak membuktikan playback tanpa gangguan.</string>
+    <string name="cs_diag_summary_empty">Tiada rekod server dalam kategori ini.</string>
+    <string name="cs_diag_summary_extraction">Extraction</string>
+    <string name="cs_diag_summary_playback">Playback</string>
+    <string name="cs_diag_summary_links_found">Link direkod</string>
+    <string name="cs_diag_summary_extraction_empty">Provider melaporkan extraction gagal; tiada callback link diperhatikan</string>
+    <string name="cs_diag_summary_extraction_unknown">Tiada callback link direkod; keputusan akhir extraction tidak diketahui</string>
+    <string name="cs_diag_summary_origin_unknown">Operation penemuan link tidak dapat ditentukan</string>
+    <string name="cs_diag_summary_not_tested">Tiada percubaan playback direkod</string>
+    <string name="cs_diag_summary_pending">Percubaan direkod; keputusan akhir belum diperhatikan</string>
+    <string name="cs_diag_summary_frame">Frame pertama diperhatikan</string>
+    <string name="cs_diag_summary_failed">Kegagalan akhir playback diperhatikan</string>
+    <string name="cs_diag_summary_frame_then_failed">Frame pertama dan kegagalan akhir playback diperhatikan</string>
+    <string name="cs_diag_summary_cancelled">Dibatalkan sebelum frame pertama direkod</string>
+    <string name="cs_diag_summary_evidence_gap">Sebahagian event terdahulu telah dibuang. Ringkasan ini mungkin tidak lengkap.</string>
+    <string name="cs_diag_export_title">KONTEKS EKSPORT</string>
+    <string name="cs_diag_export_note">Versi provider ialah metadata pemasangan semasa eksport jika dapat dikenal pasti; bukan jaminan versi ketika event berlaku. Carian digunakan pada kandungan report.</string>
+    <string name="cs_diag_summary_extraction_mixed">Link diperhatikan; provider juga melaporkan extraction gagal</string>
 </resources>

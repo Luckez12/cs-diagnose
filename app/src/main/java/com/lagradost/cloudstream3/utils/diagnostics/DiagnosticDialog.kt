@@ -188,6 +188,10 @@ object DiagnosticDialog {
                 ProviderTrace.report(activity, ProviderTrace.sections[selected], !full),
                 search.text?.toString().orEmpty(), activity
             )
+            fun exportReport(): String = DiagnosticReportMetadata.wrap(
+                activity, visibleReport(), ProviderTrace.sections[selected], full,
+                search.text?.toString().orEmpty()
+            )
             fun refresh() {
                 if (page.parent == null) return
                 // Both the visual selection and report use the SAME mode snapshot.
@@ -241,14 +245,14 @@ object DiagnosticDialog {
                 }
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
             }
-            // Copy what the user actually sees after Search / category / mode filtering.
-            copyButton.setOnClickListener { copy(activity, visibleReport()) }
+            // Export the filtered report body plus fresh context; Copy and Save share this path.
+            copyButton.setOnClickListener { copy(activity, exportReport()) }
             saveButton.setOnClickListener {
                 val host = activity as? MainActivity
                 if (host == null) {
                     Toast.makeText(activity, DiagnosticText.get(activity, "save_failed"), Toast.LENGTH_LONG).show()
                 } else {
-                    host.saveDiagnosticReport(visibleReport(), ProviderTrace.sections[selected], full)
+                    host.saveDiagnosticReport(exportReport(), ProviderTrace.sections[selected], full)
                 }
             }
             clearSearch.setOnClickListener { search.text?.clear() }

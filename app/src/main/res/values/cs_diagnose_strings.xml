@@ -115,4 +115,23 @@
     <string name="cs_diag_menu">Diagnose</string>
     <string name="cs_diag_search_results">Search results: %1$d</string>
     <string name="cs_diag_search_no_match">No matching logs.</string>
+    <string name="cs_diag_summary_title">SERVER SUMMARY</string>
+    <string name="cs_diag_summary_note">Based on retained observations only. A link or first frame does not prove uninterrupted playback.</string>
+    <string name="cs_diag_summary_empty">No server observations in this category.</string>
+    <string name="cs_diag_summary_extraction">Extraction</string>
+    <string name="cs_diag_summary_playback">Playback</string>
+    <string name="cs_diag_summary_links_found">Links observed</string>
+    <string name="cs_diag_summary_extraction_empty">Provider reported unsuccessful extraction; no link callback observed</string>
+    <string name="cs_diag_summary_extraction_unknown">No link callback recorded; final extraction result unknown</string>
+    <string name="cs_diag_summary_origin_unknown">Discovery operation not determined</string>
+    <string name="cs_diag_summary_not_tested">No playback attempt recorded</string>
+    <string name="cs_diag_summary_pending">Attempt recorded; final result not observed</string>
+    <string name="cs_diag_summary_frame">First frame observed</string>
+    <string name="cs_diag_summary_failed">Final playback failure observed</string>
+    <string name="cs_diag_summary_frame_then_failed">First frame and final playback failure observed</string>
+    <string name="cs_diag_summary_cancelled">Cancelled before a first frame was recorded</string>
+    <string name="cs_diag_summary_evidence_gap">Some earlier events were discarded. This summary may be incomplete.</string>
+    <string name="cs_diag_export_title">EXPORT CONTEXT</string>
+    <string name="cs_diag_export_note">Provider versions are current installed metadata at export, when identifiable; they are not an historical version guarantee. Search applies to the report body.</string>
+    <string name="cs_diag_summary_extraction_mixed">Links observed; the provider also reported unsuccessful extraction</string>
 </resources>
