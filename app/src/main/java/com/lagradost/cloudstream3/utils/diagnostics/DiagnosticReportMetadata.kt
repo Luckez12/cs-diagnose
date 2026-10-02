@@ -18,7 +18,10 @@ internal object DiagnosticReportMetadata {
         appendLine("app_version=${ProviderSafeText.message(BuildConfig.VERSION_NAME)} app_version_code=${BuildConfig.VERSION_CODE} android_api=${Build.VERSION.SDK_INT}")
         appendLine("mode=${if (full) "FullTrace" else "Important"} section=${ProviderTrace.sectionValue(section)}")
         appendLine("search_query=${ProviderSafeText.message(query).ifBlank { "none" }}")
-        appendLine("plugin_log_collector=${ProviderSafeText.message(PluginLogCollector.status())}")
+        val collector = PluginLogCollector.snapshot()
+        appendLine("plugin_log_collector=${ProviderSafeText.message(collector.state)}")
+        appendLine(collector.fields())
+        if (collector.gaps > 0 || collector.gapOpen) appendLine(DiagnosticText.get(ctx, "collector_gap_note"))
         val identities = ProviderTrace.retainedProviderIdentities()
         val versions = runCatching { (PluginManager.getPluginsLocal() + PluginManager.getPluginsOnline()).toList() }.getOrNull()
         for ((identity, name) in identities) {

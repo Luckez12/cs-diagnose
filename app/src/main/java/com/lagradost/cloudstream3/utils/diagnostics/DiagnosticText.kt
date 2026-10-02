@@ -164,6 +164,7 @@ internal object DiagnosticText {
             "attr_unverified" -> R.string.cs_diag_attr_unverified
             "origin_label" -> R.string.cs_diag_origin_label
             "report_counts" -> R.string.cs_diag_report_counts
+            "collector_gap_note" -> R.string.cs_diag_collector_gap_note
             "collector_status" -> R.string.cs_diag_collector_status
             "in_progress" -> R.string.cs_diag_in_progress
             "poster_selections" -> R.string.cs_diag_poster_selections

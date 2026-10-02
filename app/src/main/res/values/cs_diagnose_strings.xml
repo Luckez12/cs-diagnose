@@ -143,4 +143,5 @@
     <string name="cs_diag_tab_extractor">Extractor</string>
     <string name="cs_diag_tab_player">Player</string>
     <string name="cs_diag_tab_full">Full</string>
+    <string name="cs_diag_collector_gap_note">Plugin log collection was interrupted in this app process. Some provider messages may be missing even when discarded=0. Restart does not prove missed messages were recovered; collector times are observation times.</string>
 </resources>

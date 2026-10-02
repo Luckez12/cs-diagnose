@@ -191,7 +191,7 @@ object ProviderTrace {
         val name = stage.uppercase(Locale.US)
         return when {
             name.contains("HTTP") || name.contains("NETWORK") || name.contains("CLOUDFLARE") -> "HTTP / Network"
-            name == "PLUGIN_LOG" -> "Plugin Logs"
+            name == "PLUGIN_LOG" || name == "COLLECTOR" -> "Plugin Logs"
             name.contains("LINK") || name.contains("EXTRACT") || name.contains("SUBTITLE") -> "Links / Extractor"
             name.contains("PLAYER") || name.contains("PLAYBACK") || name.contains("FIRST_FRAME") || name.contains("BUFFER") -> "Player"
             // Homepage, Search, Metadata and previously unclassified app-stage events
@@ -236,6 +236,15 @@ object ProviderTrace {
             pending[op]?.let { TraceContext(it.session, op, it.provider) }
         } ?: return action()
         return withContext(context.asContextElement(ctx)) { action() }
+    }
+
+    /** Collector lifecycle evidence has no provider/request owner and creates no pending task. */
+    internal fun collectorEvent(level: String, info: String) = synchronized(lock) {
+        val id = ++counter
+        operationSessions[id] = 0L
+        record(id, level, "COLLECTOR", info)
+        // No persistent operation mapping is needed for a standalone lifecycle event.
+        operationSessions.remove(id)
     }
 
     /** Android Log.d/i/w/e from this process; tag must match a registered provider.

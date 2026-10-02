@@ -143,4 +143,5 @@
     <string name="cs_diag_tab_extractor">Extractor</string>
     <string name="cs_diag_tab_player">Player</string>
     <string name="cs_diag_tab_full">Penuh</string>
+    <string name="cs_diag_collector_gap_note">Pengumpulan log plugin terganggu dalam proses app ini. Sebahagian mesej provider mungkin tiada walaupun discarded=0. Restart tidak membuktikan mesej yang terlepas dipulihkan; masa collector ialah masa pemerhatian.</string>
 </resources>
